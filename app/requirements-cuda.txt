@@ -1,0 +1,9 @@
+# PyTorch with CUDA Support / PyTorch với Hỗ trợ CUDA
+# Install this FIRST before installing requirements.txt
+# Cài đặt cái này TRƯỚC khi cài đặt requirements.txt
+
+--index-url https://download.pytorch.org/whl/cu121
+torch>=2.6.0
+torchvision>=0.19.0
+torchaudio>=2.6.0
+

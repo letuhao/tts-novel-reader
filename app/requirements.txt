@@ -1,0 +1,37 @@
+# TTS Backend Requirements / Yêu cầu TTS Backend
+
+# Core Dependencies / Phụ thuộc Chính
+# NOTE: Install PyTorch with CUDA separately:
+# uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Or use CPU version:
+# torch>=2.6.0
+# torchaudio>=2.6.0
+# torchvision>=0.19.0
+
+# TTS Models / Mô hình TTS
+# VieNeu-TTS dependencies
+phonemizer>=3.3.0
+neucodec>=0.0.4
+librosa>=0.11.0
+soundfile>=0.13.1
+
+# Dia TTS dependencies
+descript-audio-codec>=1.0.0
+transformers>=4.35.0
+bitsandbytes>=0.39.0
+
+# API & Web Framework / API và Framework Web
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.11.3
+python-multipart>=0.0.9
+
+# Utilities / Tiện ích
+numpy>=2.2.4
+huggingface-hub>=0.30.2
+safetensors>=0.4.0
+tqdm>=4.65.0
+
+# Optional: GPU optimization / Tùy chọn: Tối ưu GPU
+# torch.compile support (included in PyTorch 2.0+)
+

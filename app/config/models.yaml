@@ -1,0 +1,24 @@
+# TTS Models Configuration / Cấu hình Model TTS
+
+# VieNeu-TTS Configuration / Cấu hình VieNeu-TTS
+vieneu_tts:
+  model_path: "../../models/vieneu-tts"
+  repo_path: "../../tts/VieNeu-TTS"
+  sample_rate: 24000
+  default_device: "cuda"  # cuda, cpu, auto
+
+# Dia TTS Configuration / Cấu hình Dia TTS
+dia:
+  model_path: "../../models/dia-finetuning-vnese"
+  repo_path: "../../tts/Dia-Finetuning-Vietnamese"
+  config_path: "../../models/dia-finetuning-vnese/config_inference.json"
+  checkpoint_path: "../../models/dia-finetuning-vnese/model.safetensors"
+  sample_rate: 44100
+  default_device: "cuda"  # cuda, cpu, auto
+
+# Default model / Model mặc định
+default_model: "vieneu-tts"
+
+# Device selection / Lựa chọn thiết bị
+device_selection: "auto"  # auto, cuda, cpu
+

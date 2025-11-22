@@ -1,0 +1,12 @@
+{
+  "name": "Female Narrator - Speaker 05",
+  "description": "Preferred female narrator voice preset",
+  "speaker_id": "05",
+  "model": "dia",
+  "temperature": 1.3,
+  "top_p": 0.95,
+  "cfg_scale": 3.0,
+  "sample_audio": "dia_female_05.wav",
+  "notes": "User preferred female narrator voice"
+}
+

@@ -1,0 +1,35 @@
+# Logs
+logs/
+*.log
+backend_*.log
+
+# Process IDs
+*.pid
+backend_pid.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output files
+output_*.wav
+*.wav
+
+# OS
+.DS_Store
+Thumbs.db
+
