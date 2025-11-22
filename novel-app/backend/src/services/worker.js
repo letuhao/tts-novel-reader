@@ -7,7 +7,9 @@
  */
 import { getAudioStorage } from './audioStorage.js';
 import { NovelModel } from '../models/Novel.js';
-import { NovelParser } from '../services/novelParser.js';
+import { ChapterModel } from '../models/Chapter.js';
+import { ParagraphModel } from '../models/Paragraph.js';
+import { GenerationProgressModel } from '../models/GenerationProgress.js';
 import { AudioCacheModel } from '../models/AudioCache.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -53,15 +55,20 @@ export class AudioWorker {
         throw new Error(`Novel not found: ${novelId}`);
       }
 
-      // Get chapter
-      const chapter = NovelParser.getChapter(novel, chapterNumber);
+      // Get chapter from database (normalized table)
+      const chapter = await ChapterModel.getByNovelAndNumber(novelId, chapterNumber);
       if (!chapter) {
         throw new Error(`Chapter ${chapterNumber} not found in novel ${novelId}`);
       }
-
-      if (!chapter.paragraphs || chapter.paragraphs.length === 0) {
+      
+      // Get paragraphs from database (normalized table)
+      const paragraphs = await ParagraphModel.getByChapter(chapter.id);
+      if (!paragraphs || paragraphs.length === 0) {
         throw new Error(`Chapter ${chapterNumber} has no paragraphs`);
       }
+      
+      // Transform to expected format for compatibility
+      chapter.paragraphs = paragraphs;
 
       // Generate audio for each paragraph separately
       const paragraphResults = [];
@@ -112,6 +119,30 @@ export class AudioWorker {
             }
           }
 
+          // Track generation progress - Mark as started
+          // Theo dõi tiến độ tạo - Đánh dấu đã bắt đầu
+          let progressId = null;
+          try {
+            const progress = await GenerationProgressModel.createOrUpdate({
+              novelId: novelId,
+              chapterId: chapter.id,
+              chapterNumber: chapterNumber,
+              paragraphId: paragraph.id,
+              paragraphNumber: paragraph.paragraphNumber,
+              status: 'in_progress',
+              speakerId: speakerId,
+              model: 'dia',
+              progressPercent: 0,
+              startedAt: new Date().toISOString()
+            });
+            progressId = progress.id;
+            console.log(`[Worker] Generation progress tracked: ${progressId}`);
+            console.log(`[Worker] Tiến độ tạo được theo dõi: ${progressId}`);
+          } catch (progressError) {
+            console.warn(`[Worker] ⚠️ Failed to track progress: ${progressError.message}`);
+            console.warn(`[Worker] ⚠️ Không thể theo dõi tiến độ: ${progressError.message}`);
+          }
+          
           // Generate audio for this paragraph
           console.log(`[Worker] ==========================================`);
           console.log(`[Worker] Processing paragraph ${paragraph.paragraphNumber}`);
@@ -161,8 +192,28 @@ export class AudioWorker {
             ttsFileId: audioMetadata.fileId,
             speakerId: speakerId,
             expiresAt: audioMetadata.expiresAt,
-            model: 'dia'
+            model: 'dia',
+            localAudioPath: audioMetadata.localAudioPath || null,
+            audioDuration: audioMetadata.audioDuration || null,
+            audioFileSize: audioMetadata.audioFileSize || null
           });
+          
+          // Update generation progress - Mark as completed
+          // Cập nhật tiến độ tạo - Đánh dấu hoàn thành
+          if (progressId) {
+            try {
+              await GenerationProgressModel.update(progressId, {
+                status: 'completed',
+                progressPercent: 100,
+                completedAt: new Date().toISOString()
+              });
+              console.log(`[Worker] ✅ Generation progress marked as completed`);
+              console.log(`[Worker] ✅ Tiến độ tạo được đánh dấu hoàn thành`);
+            } catch (progressError) {
+              console.warn(`[Worker] ⚠️ Failed to update progress: ${progressError.message}`);
+              console.warn(`[Worker] ⚠️ Không thể cập nhật tiến độ: ${progressError.message}`);
+            }
+          }
 
           paragraphResults.push({
             success: true,
@@ -180,7 +231,41 @@ export class AudioWorker {
             await new Promise(resolve => setTimeout(resolve, this.delayBetweenItems / 2));
           }
         } catch (error) {
-          console.error(`Error generating audio for paragraph ${paragraph.paragraphNumber}: ${error.message}`);
+          console.error(`[Worker] ❌ Error generating audio for paragraph ${paragraph.paragraphNumber}: ${error.message}`);
+          console.error(`[Worker] ❌ Lỗi tạo audio cho paragraph ${paragraph.paragraphNumber}: ${error.message}`);
+          
+          // Update generation progress - Mark as failed
+          // Cập nhật tiến độ tạo - Đánh dấu thất bại
+          if (progressId) {
+            try {
+              await GenerationProgressModel.update(progressId, {
+                status: 'failed',
+                errorMessage: error.message
+              });
+              console.log(`[Worker] ⚠️ Generation progress marked as failed`);
+              console.log(`[Worker] ⚠️ Tiến độ tạo được đánh dấu thất bại`);
+            } catch (progressError) {
+              console.warn(`[Worker] ⚠️ Failed to update progress: ${progressError.message}`);
+            }
+          } else {
+            // Create progress entry for failed generation
+            try {
+              await GenerationProgressModel.createOrUpdate({
+                novelId: novelId,
+                chapterId: chapter.id,
+                chapterNumber: chapterNumber,
+                paragraphId: paragraph.id,
+                paragraphNumber: paragraph.paragraphNumber,
+                status: 'failed',
+                speakerId: speakerId,
+                model: 'dia',
+                errorMessage: error.message
+              });
+            } catch (progressError) {
+              console.warn(`[Worker] ⚠️ Failed to create progress entry: ${progressError.message}`);
+            }
+          }
+          
           errors.push({
             paragraphNumber: paragraph.paragraphNumber,
             paragraphId: paragraph.id,
@@ -190,6 +275,17 @@ export class AudioWorker {
         }
       }
 
+      // Get generation statistics from database
+      // Lấy thống kê generation từ database
+      let generationStats = null;
+      try {
+        generationStats = await GenerationProgressModel.getChapterStats(novelId, chapterNumber);
+        console.log(`[Worker] Generation statistics:`, generationStats);
+        console.log(`[Worker] Thống kê generation:`, generationStats);
+      } catch (statsError) {
+        console.warn(`[Worker] ⚠️ Failed to get generation stats: ${statsError.message}`);
+      }
+      
       // Return results
       const successCount = paragraphResults.filter(r => r.success).length;
       const failedCount = errors.length;
@@ -207,6 +303,7 @@ export class AudioWorker {
         generatedCount: generatedCount,
         paragraphResults: paragraphResults,
         errors: errors,
+        generationStats: generationStats,  // Include generation progress statistics
         message: `Generated ${generatedCount} new, ${cachedCount} cached, ${failedCount} failed out of ${chapter.paragraphs.length} paragraphs`
       };
     } catch (error) {

@@ -175,7 +175,7 @@ router.get('/:id/chapters', async (req, res, next) => {
   }
 });
 
-// Get specific chapter
+// Get specific chapter (from normalized database table)
 router.get('/:id/chapters/:chapterNumber', async (req, res, next) => {
   try {
     const novel = await NovelModel.getById(req.params.id);
@@ -187,7 +187,12 @@ router.get('/:id/chapters/:chapterNumber', async (req, res, next) => {
     }
     
     const chapterNumber = parseInt(req.params.chapterNumber);
-    const chapter = NovelParser.getChapter(novel, chapterNumber);
+    
+    // Get chapter from normalized database table
+    const { ChapterModel } = await import('../models/Chapter.js');
+    const { ParagraphModel } = await import('../models/Paragraph.js');
+    
+    const chapter = await ChapterModel.getByNovelAndNumber(req.params.id, chapterNumber);
     
     if (!chapter) {
       return res.status(404).json({
@@ -195,6 +200,10 @@ router.get('/:id/chapters/:chapterNumber', async (req, res, next) => {
         error: 'Chapter not found'
       });
     }
+    
+    // Load paragraphs from normalized database table
+    const paragraphs = await ParagraphModel.getByChapter(chapter.id);
+    chapter.paragraphs = paragraphs;
     
     res.json({
       success: true,
