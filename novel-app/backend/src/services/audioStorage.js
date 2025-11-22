@@ -3,6 +3,7 @@
  * Dịch vụ Lưu trữ Audio - Lưu trữ Có Tổ chức
  */
 import { TTSService } from './ttsService.js';
+import { normalizeTextForTTS } from '../utils/textNormalizer.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
@@ -172,14 +173,26 @@ export class AudioStorageService {
       forceRegenerate = false  // Force regeneration even if audio exists
     } = options;
     
+    // Normalize text for TTS (convert system notifications to natural dialogue)
+    // Chuẩn hóa văn bản cho TTS (chuyển đổi thông báo hệ thống sang hội thoại tự nhiên)
+    const normalizedText = normalizeTextForTTS(text);
+    
     console.log(`[AudioStorage] ==========================================`);
     console.log(`[AudioStorage] Starting generateAndStore for paragraph ${paragraphNumber}`);
     console.log(`[AudioStorage] Bắt đầu generateAndStore cho paragraph ${paragraphNumber}`);
     console.log(`[AudioStorage] Novel ID: ${novelId}${novelTitle ? ` (${novelTitle})` : ''}`);
     console.log(`[AudioStorage] Chapter: ${chapterNumber}${chapterTitle ? ` - ${chapterTitle}` : ''}`);
     console.log(`[AudioStorage] Paragraph: ${paragraphNumber}`);
-    console.log(`[AudioStorage] Text length: ${text.length} chars`);
-    console.log(`[AudioStorage] Text preview: ${text.substring(0, 100)}...`);
+    console.log(`[AudioStorage] Original text length: ${text.length} chars`);
+    console.log(`[AudioStorage] Normalized text length: ${normalizedText.length} chars`);
+    if (text !== normalizedText) {
+      console.log(`[AudioStorage] 📝 Text was normalized for TTS`);
+      console.log(`[AudioStorage] 📝 Văn bản đã được chuẩn hóa cho TTS`);
+      console.log(`[AudioStorage] Original: ${text.substring(0, 150)}...`);
+      console.log(`[AudioStorage] Normalized: ${normalizedText.substring(0, 150)}...`);
+    } else {
+      console.log(`[AudioStorage] Text preview: ${normalizedText.substring(0, 100)}...`);
+    }
     console.log(`[AudioStorage] Force regenerate: ${forceRegenerate}`);
     
     try {
@@ -210,7 +223,9 @@ export class AudioStorageService {
       console.log(`[AudioStorage] Bước 1: Đang tạo audio qua TTS backend...`);
       // Step 1: Generate audio from TTS backend (temporary cache: 2 hours)
       // Bước 1: Tạo audio từ TTS backend (cache tạm thời: 2 giờ)
-      const audioMetadata = await this.ttsService.generateAudio(text, {
+      // Use normalized text for TTS generation
+      // Sử dụng văn bản đã chuẩn hóa cho việc tạo TTS
+      const audioMetadata = await this.ttsService.generateAudio(normalizedText, {
         speakerId: speakerId,
         model: model,
         expiryHours: ttsExpiryHours,  // Short-term cache in TTS backend
@@ -291,7 +306,8 @@ export class AudioStorageService {
           localAudioPath: localAudioPath,
           chapterTitle: chapterTitle,  // Pass chapter title for metadata
           novelTitle: novelTitle,       // Pass novel title for metadata
-          subtitle: text,               // Pass input text for subtitle storage
+          subtitle: text,               // Pass original input text for subtitle storage
+          normalizedText: normalizedText,  // Pass normalized text for reference
           paragraphId: options.paragraphId || null,  // Pass paragraph database ID
           paragraphIndex: options.paragraphIndex !== undefined ? options.paragraphIndex : null,  // Pass paragraph index
           totalParagraphsInChapter: options.totalParagraphsInChapter || null,  // Pass total paragraphs
@@ -420,7 +436,10 @@ export class AudioStorageService {
       const novelTitle = localInfo.novelTitle || null;
       
       // Extract subtitle and generation parameters
-      const subtitle = localInfo?.subtitle || null;
+      // Store original text in subtitle, normalized text separately
+      // Lưu văn bản gốc trong subtitle, văn bản đã chuẩn hóa riêng
+      const subtitle = localInfo?.subtitle || null;  // Original text (before normalization)
+      const normalizedText = localInfo?.normalizedText || subtitle;  // Normalized text (for TTS)
       const paragraphId = localInfo?.paragraphId || null;
       const paragraphIndex = localInfo?.paragraphIndex !== undefined ? localInfo.paragraphIndex : null;
       
@@ -454,7 +473,8 @@ export class AudioStorageService {
         
         // Subtitle/Input text - Text used to generate this audio (for subtitle display)
         // Phụ đề/Văn bản đầu vào - Văn bản được sử dụng để tạo audio này (để hiển thị phụ đề)
-        subtitle: subtitle,  // Original input text
+        subtitle: subtitle,  // Original input text (before normalization, for display)
+        normalizedText: normalizedText,  // Normalized text (actually used for TTS generation)
         text: subtitle,  // Alias for subtitle for compatibility
         textStats: textStats,  // Text statistics (char count, word count, reading time)
         
