@@ -17,17 +17,17 @@ os.chdir(script_dir)
 
 # Check if backend is already running
 def check_backend_running():
-    """Check if backend is running on port 8000"""
+    """Check if backend is running on port 11111"""
     try:
-        response = urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2)
+        response = urllib.request.urlopen("http://127.0.0.1:11111/health", timeout=2)
         return response.status == 200
     except (urllib.error.URLError, OSError):
         return False
 
 # Check if already running
 if check_backend_running():
-    print("⚠️  Backend is already running on port 8000!")
-    print("⚠️  Backend đang chạy trên port 8000 rồi!")
+    print("⚠️  Backend is already running on port 11111!")
+    print("⚠️  Backend đang chạy trên port 11111 rồi!")
     print("   Stop it first with: python stop_backend.py")
     sys.exit(1)
 
@@ -73,9 +73,9 @@ if check_backend_running():
     print("✅ TTS Backend started successfully!")
     print("✅ TTS Backend đã được khởi động thành công!")
     print("")
-    print("📡 Backend running at: http://127.0.0.1:8000")
-    print("📚 API Docs: http://127.0.0.1:8000/docs")
-    print("❤️  Health Check: http://127.0.0.1:8000/health")
+    print("📡 Backend running at: http://127.0.0.1:11111")
+    print("📚 API Docs: http://127.0.0.1:11111/docs")
+    print("❤️  Health Check: http://127.0.0.1:11111/health")
     print("")
     print(f"📝 Logs: {log_dir}\\backend_*.log")
     print(f"🆔 Process ID: {process.pid}")
@@ -88,5 +88,5 @@ else:
     print("⚠️  Backend có thể vẫn đang khởi động...")
     print(f"   Process ID: {process.pid}")
     print(f"   Check logs: {log_dir}\\backend_*.log")
-    print("   Try: http://127.0.0.1:8000/docs in a few seconds")
+    print("   Try: http://127.0.0.1:11111/docs in a few seconds")
 

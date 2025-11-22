@@ -16,7 +16,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 PID_FILE = LOGS_DIR / "backend_pid.txt"
 OUTPUT_LOG = LOGS_DIR / "backend_output.log"
 ERROR_LOG = LOGS_DIR / "backend_error.log"
-PORT = int(os.getenv("PORT", "3000"))
+PORT = int(os.getenv("PORT", "11110"))
 
 def is_port_in_use(port):
     """Check if port is in use / Kiểm tra port có đang được sử dụng"""

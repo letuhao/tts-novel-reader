@@ -151,25 +151,72 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
     );
 
     if (!paragraphAudios || paragraphAudios.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'No audio files found for this chapter. Please generate them first.',
-        totalParagraphs: chapter.paragraphs.length
+      return res.status(200).json({
+        success: true,
+        chapterNumber: parseInt(chapterNumber),
+        chapterId: chapter.id,
+        totalParagraphs: chapter.paragraphs.length,
+        audioFileCount: 0,
+        audioFiles: [],
+        message: `No audio files found for this chapter. Please generate them first.`,
+        needsGeneration: true
       });
     }
 
     // Get TTS service for base URL
     const audioStorage = getAudioStorage();
 
+    // Get novel and chapter info for URL generation (already retrieved above)
+    const novelTitle = novel ? novel.title : null;
+    const chapterTitle = chapter ? chapter.title : null;
+
+    // Build novel and chapter directory names for URL generation
+    // Use only novel ID and chapter number (ASCII-only, no titles to avoid encoding issues)
+    // Chỉ dùng novel ID và số chapter (chỉ ASCII, không có tiêu đề để tránh vấn đề mã hóa)
+    // Removed both novel title and chapter title from folder names to prevent encoding problems
+    // Đã loại bỏ cả tiêu đề novel và tiêu đề chapter khỏi tên thư mục để tránh vấn đề mã hóa
+    const novelDirName = novelId;  // Use only novel ID, no title
+    const chapterDirName = `chapter_${String(chapterNumber).padStart(3, '0')}`;  // Use only chapter number, no title
+
     // Return list of paragraph audio files (for seamless playback in frontend)
-    const audioFiles = paragraphAudios.map(cache => ({
-      paragraphNumber: cache.paragraph_number,
-      paragraphId: cache.paragraph_id,
-      fileId: cache.tts_file_id,
-      audioURL: audioStorage.getAudioURL(cache.tts_file_id),
-      expiresAt: cache.expires_at,
-      createdAt: cache.created_at
-    })).sort((a, b) => a.paragraphNumber - b.paragraphNumber);
+    const audioFiles = paragraphAudios.map(cache => {
+      // Use local audio file URL if available, otherwise fall back to TTS backend URL
+      // Sử dụng URL file audio local nếu có, nếu không thì dùng URL TTS backend
+      let audioURL = null;
+      
+      // Ensure paragraph_number is valid (not null/undefined)
+      // Đảm bảo paragraph_number hợp lệ (không phải null/undefined)
+      const paragraphNumber = cache.paragraph_number;
+      
+      if (cache.local_audio_path && paragraphNumber !== null && paragraphNumber !== undefined) {
+        // Build path relative to storage directory
+        // Xây dựng đường dẫn tương đối với thư mục storage
+        const paragraphDirName = `paragraph_${String(paragraphNumber).padStart(3, '0')}`;
+        const fileName = `paragraph_${String(paragraphNumber).padStart(3, '0')}.wav`;
+        
+        // Local URL: /static/audio/{novel_dir}/chapter_XXX/paragraph_XXX/paragraph_XXX.wav
+        // Static files are served from /static which maps to storage directory
+        audioURL = `/static/audio/${novelDirName}/${chapterDirName}/${paragraphDirName}/${fileName}`;
+      } else {
+        // Fallback to TTS backend URL if local path not available or paragraph_number is null
+        // Dự phòng: dùng URL TTS backend nếu đường dẫn local không có hoặc paragraph_number là null
+        audioURL = audioStorage.getAudioURL(cache.tts_file_id);
+      }
+      
+      return {
+        paragraphNumber: paragraphNumber, // Can be null, but we handle it
+        paragraphId: cache.paragraph_id,
+        fileId: cache.tts_file_id,
+        audioURL: audioURL,
+        expiresAt: cache.expires_at,
+        createdAt: cache.created_at
+      };
+    }).sort((a, b) => {
+      // Sort handling null values: nulls go to the end
+      if (a.paragraphNumber === null || a.paragraphNumber === undefined) return 1;
+      if (b.paragraphNumber === null || b.paragraphNumber === undefined) return -1;
+      return a.paragraphNumber - b.paragraphNumber;
+    });
 
     res.json({
       success: true,

@@ -4,14 +4,14 @@
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logDir = Join-Path $scriptDir "logs"
 
-# Method 1: Find by port 8000 (most reliable)
+# Method 1: Find by port 11111 (most reliable)
 Write-Host "Stopping TTS Backend..." -ForegroundColor Yellow
 Write-Host "Đang dừng TTS Backend..." -ForegroundColor Yellow
 
 $processes = @()
 
-# Find process using port 8000
-$portProcess = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+# Find process using port 11111
+$portProcess = Get-NetTCPConnection -LocalPort 11111 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
 if ($portProcess) {
     $processes += $portProcess
 }
@@ -56,6 +56,6 @@ if ($processes) {
     Write-Host "✅ TTS Backend stopped" -ForegroundColor Green
     Write-Host "✅ TTS Backend đã được dừng" -ForegroundColor Green
 } else {
-    Write-Host "No TTS Backend process found on port 8000" -ForegroundColor Yellow
-    Write-Host "Không tìm thấy process TTS Backend trên port 8000" -ForegroundColor Yellow
+    Write-Host "No TTS Backend process found on port 11111" -ForegroundColor Yellow
+    Write-Host "Không tìm thấy process TTS Backend trên port 11111" -ForegroundColor Yellow
 }

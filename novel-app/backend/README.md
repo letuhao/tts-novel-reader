@@ -23,8 +23,8 @@ cp .env.example .env
 ```
 
 Edit `.env`:
-- `PORT` - Backend port (default: 3000)
-- `TTS_BACKEND_URL` - TTS backend URL (default: http://127.0.0.1:8000)
+- `PORT` - Backend port (default: 11110)
+- `TTS_BACKEND_URL` - TTS backend URL (default: http://127.0.0.1:11111)
 - `TTS_DEFAULT_SPEAKER` - Default speaker ID (default: 05)
 - `TTS_DEFAULT_EXPIRY_HOURS` - Default expiration (default: 8760 = 365 days)
 
@@ -40,7 +40,7 @@ npm start
 
 ## 📡 API Endpoints / Điểm cuối API
 
-See API documentation at: http://localhost:3000/api/docs (when running)
+See API documentation at: http://localhost:11110/api/docs (when running)
 
 ## 🔧 Features / Tính năng
 

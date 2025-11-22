@@ -126,7 +126,9 @@ export class NovelParser {
     let currentChapter = null;
     let currentParagraph = [];
     let chapterNumber = 0;
-    let paragraphNumber = 0;
+    // Use 1-based indexing for paragraph numbers (paragraph_001, paragraph_002, etc.)
+    // Sử dụng đánh số bắt đầu từ 1 cho paragraph (paragraph_001, paragraph_002, v.v.)
+    let paragraphNumber = 1;
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -166,7 +168,9 @@ export class NovelParser {
         };
         
         currentParagraph = [];
-        paragraphNumber = 0;
+        // Reset paragraph number to 1 for new chapter (1-based indexing)
+        // Đặt lại số paragraph về 1 cho chapter mới (đánh số bắt đầu từ 1)
+        paragraphNumber = 1;
         continue;
       }
       
@@ -243,7 +247,9 @@ export class NovelParser {
     const paragraphs = [];
     const lines = content.split('\n');
     let currentParagraph = [];
-    let paragraphNumber = 0;
+    // Use 1-based indexing for paragraph numbers (paragraph_001, paragraph_002, etc.)
+    // Sử dụng đánh số bắt đầu từ 1 cho paragraph (paragraph_001, paragraph_002, v.v.)
+    let paragraphNumber = 1;
     
     for (const line of lines) {
       const trimmed = line.trim();

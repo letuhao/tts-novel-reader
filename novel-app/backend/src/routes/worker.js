@@ -21,7 +21,7 @@ router.post('/generate/chapter', async (req, res, next) => {
       forceRegenerate = false,
       speedFactor = 1.0,  // Normal speed (matches preset)
       // Worker options for slower processing
-      delayBetweenBatches = 3000, // 3 seconds between batches (50% slower)
+      delayBetweenBatches = 11110, // 3 seconds between batches (50% slower)
       delayBetweenItems = 2000 // 2 seconds between items
     } = req.body;
 
@@ -86,7 +86,7 @@ router.post('/generate/batch', async (req, res, next) => {
     }
 
     const {
-      delayBetweenBatches = 3000,
+      delayBetweenBatches = 11110,
       delayBetweenItems = 2000
     } = req.body;
 
@@ -162,7 +162,7 @@ router.post('/generate/all', async (req, res, next) => {
     }
 
     const {
-      delayBetweenBatches = 3000,
+      delayBetweenBatches = 11110,
       delayBetweenItems = 2000
     } = req.body;
 

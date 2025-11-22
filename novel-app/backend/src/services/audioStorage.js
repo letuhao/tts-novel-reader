@@ -50,20 +50,23 @@ export class AudioStorageService {
    * @returns {string} Storage directory path
    */
   getStoragePath(novelId, chapterNumber, paragraphNumber = null, chapterTitle = null, novelTitle = null) {
-    // Base novel directory: Use novel ID as primary, optionally add title
-    // Thư mục novel cơ bản: Dùng novel ID làm chính, tùy chọn thêm tiêu đề
-    const novelDirName = novelTitle 
-      ? `${novelId}_${this.sanitizeFileName(novelTitle)}`
-      : novelId;
+    // Base novel directory: Use only novel ID to avoid encoding issues
+    // Thư mục novel cơ bản: Chỉ dùng novel ID để tránh vấn đề mã hóa
+    // Removed novel title from folder name to prevent encoding problems
+    // Đã loại bỏ tiêu đề novel khỏi tên thư mục để tránh vấn đề mã hóa
+    const novelDirName = novelId;
     const novelDir = path.join(this.baseStorageDir, novelDirName);
     
-    // Chapter directory: chapter_{number}_{sanitized_title}
-    // Thư mục chapter: chapter_{number}_{sanitized_title}
-    const chapterTitleSafe = chapterTitle ? `_${this.sanitizeFileName(chapterTitle)}` : '';
-    const chapterDirName = `chapter_${String(chapterNumber).padStart(3, '0')}${chapterTitleSafe}`;
+    // Chapter directory: chapter_{number} (ASCII-only, no title to avoid encoding issues)
+    // Thư mục chapter: chapter_{number} (chỉ ASCII, không có tiêu đề để tránh vấn đề mã hóa)
+    // Removed chapter title from folder name to prevent encoding problems
+    // Đã loại bỏ tiêu đề chapter khỏi tên thư mục để tránh vấn đề mã hóa
+    const chapterDirName = `chapter_${String(chapterNumber).padStart(3, '0')}`;
     const chapterDir = path.join(novelDir, chapterDirName);
     
-    if (paragraphNumber !== null) {
+    // Check if paragraphNumber is provided (including 0)
+    // 0 is a valid paragraph number, so we need to check for null/undefined explicitly
+    if (paragraphNumber !== null && paragraphNumber !== undefined) {
       // Paragraph directory: paragraph_{number}
       // Thư mục paragraph: paragraph_{number}
       const paraDir = path.join(chapterDir, `paragraph_${String(paragraphNumber).padStart(3, '0')}`);
@@ -89,7 +92,8 @@ export class AudioStorageService {
     const storageDir = this.getStoragePath(novelId, chapterNumber, paragraphNumber, chapterTitle, novelTitle);
     // Use simpler filename: paragraph_{number}.wav or audio.wav
     // Sử dụng tên file đơn giản hơn: paragraph_{number}.wav hoặc audio.wav
-    if (paragraphNumber !== null) {
+    // Check if paragraphNumber is provided (including 0)
+    if (paragraphNumber !== null && paragraphNumber !== undefined) {
       return path.join(storageDir, `paragraph_${String(paragraphNumber).padStart(3, '0')}.wav`);
     }
     return path.join(storageDir, `${fileId}.wav`);
@@ -111,7 +115,8 @@ export class AudioStorageService {
     const storageDir = this.getStoragePath(novelId, chapterNumber, paragraphNumber, chapterTitle, novelTitle);
     // Use simpler filename: paragraph_{number}_metadata.json or metadata.json
     // Sử dụng tên file đơn giản hơn: paragraph_{number}_metadata.json hoặc metadata.json
-    if (paragraphNumber !== null) {
+    // Check if paragraphNumber is provided (including 0)
+    if (paragraphNumber !== null && paragraphNumber !== undefined) {
       return path.join(storageDir, `paragraph_${String(paragraphNumber).padStart(3, '0')}_metadata.json`);
     }
     return path.join(storageDir, `metadata.json`);
@@ -258,7 +263,13 @@ export class AudioStorageService {
           localAudioPath: localAudioPath,
           chapterTitle: chapterTitle,  // Pass chapter title for metadata
           novelTitle: novelTitle,       // Pass novel title for metadata
-          subtitle: text                // Pass input text for subtitle storage
+          subtitle: text,               // Pass input text for subtitle storage
+          paragraphId: options.paragraphId || null,  // Pass paragraph database ID
+          paragraphIndex: options.paragraphIndex !== undefined ? options.paragraphIndex : null,  // Pass paragraph index
+          totalParagraphsInChapter: options.totalParagraphsInChapter || null,  // Pass total paragraphs
+          speakerId: speakerId,  // Pass speaker ID
+          model: model,  // Pass model name
+          speedFactor: speedFactor  // Pass speed factor
         }
       );
       console.log(`[AudioStorage] ✅ Step 4: Metadata saved successfully!`);

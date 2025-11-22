@@ -38,7 +38,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Backend runs on: http://localhost:3000
+Backend runs on: http://localhost:11110
 
 ### Frontend Setup / Thiết lập Frontend
 

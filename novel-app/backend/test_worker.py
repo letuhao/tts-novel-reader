@@ -15,7 +15,7 @@ from pathlib import Path
 def check_backend():
     """Check if backend is running / Kiểm tra xem backend có đang chạy không"""
     try:
-        with urllib.request.urlopen("http://127.0.0.1:3000/health", timeout=3) as response:
+        with urllib.request.urlopen("http://127.0.0.1:11110/health", timeout=3) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode())
                 print(f"✅ Backend is running: {data.get('status', 'unknown')}")
@@ -37,7 +37,7 @@ def get_novel_id():
     print()
     
     try:
-        with urllib.request.urlopen("http://127.0.0.1:3000/api/novels", timeout=5) as response:
+        with urllib.request.urlopen("http://127.0.0.1:11110/api/novels", timeout=5) as response:
             data = json.loads(response.read().decode())
             
             novels = data.get('novels', [])
@@ -96,7 +96,7 @@ def generate_chapter_audio(novel_id, chapter_number=1):
     print(f"  Speed Factor: 1.0")
     print()
     
-    url = "http://127.0.0.1:3000/api/worker/generate/chapter"
+    url = "http://127.0.0.1:11110/api/worker/generate/chapter"
     data = json.dumps(request_body).encode('utf-8')
     
     req = urllib.request.Request(

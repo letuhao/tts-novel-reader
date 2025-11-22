@@ -2,21 +2,21 @@
 
 ## 🚀 Starting the Backend / Khởi động Backend
 
-The backend service is running at: **http://127.0.0.1:8000**
+The backend service is running at: **http://127.0.0.1:11111**
 
 ## 📝 API Endpoints / Điểm cuối API
 
 ### 1. Health Check / Kiểm tra Sức khỏe
 
 ```bash
-GET http://127.0.0.1:8000/health
+GET http://127.0.0.1:11111/health
 ```
 
-Or visit: http://127.0.0.1:8000/health
+Or visit: http://127.0.0.1:11111/health
 
 ### 2. API Documentation / Tài liệu API
 
-Visit: **http://127.0.0.1:8000/docs**
+Visit: **http://127.0.0.1:11111/docs**
 
 This provides an interactive Swagger UI where you can test the API directly!  
 Đây cung cấp Swagger UI tương tác nơi bạn có thể kiểm tra API trực tiếp!
@@ -24,7 +24,7 @@ This provides an interactive Swagger UI where you can test the API directly!
 ### 3. Get Dia TTS Model Info / Lấy Thông tin Model Dia TTS
 
 ```bash
-POST http://127.0.0.1:8000/api/tts/model/info
+POST http://127.0.0.1:11111/api/tts/model/info
 Content-Type: application/json
 
 {
@@ -35,7 +35,7 @@ Content-Type: application/json
 ### 4. Synthesize Speech with Dia TTS / Tổng hợp Giọng nói với Dia TTS
 
 ```bash
-POST http://127.0.0.1:8000/api/tts/synthesize
+POST http://127.0.0.1:11111/api/tts/synthesize
 Content-Type: application/json
 
 {
@@ -54,13 +54,13 @@ Content-Type: application/json
 ### Test 1: Health Check
 
 ```powershell
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:11111/health
 ```
 
 ### Test 2: Get Model Info
 
 ```powershell
-curl -X POST "http://127.0.0.1:8000/api/tts/model/info" `
+curl -X POST "http://127.0.0.1:11111/api/tts/model/info" `
   -H "Content-Type: application/json" `
   -d '{"model": "dia"}'
 ```
@@ -68,7 +68,7 @@ curl -X POST "http://127.0.0.1:8000/api/tts/model/info" `
 ### Test 3: Generate Speech
 
 ```powershell
-curl -X POST "http://127.0.0.1:8000/api/tts/synthesize" `
+curl -X POST "http://127.0.0.1:11111/api/tts/synthesize" `
   -H "Content-Type: application/json" `
   -d '{
     "text": "[01] Xin chào, đây là một ví dụ về tổng hợp giọng nói tiếng Việt.",
@@ -82,7 +82,7 @@ curl -X POST "http://127.0.0.1:8000/api/tts/synthesize" `
 
 ## 🌐 Testing with Browser / Kiểm tra với Trình duyệt
 
-1. **Open:** http://127.0.0.1:8000/docs
+1. **Open:** http://127.0.0.1:11111/docs
 2. **Click on:** `/api/tts/model/info` → Try it out
 3. **Enter:**
    ```json
@@ -154,6 +154,6 @@ curl -X POST "http://127.0.0.1:8000/api/tts/synthesize" `
 
 ---
 
-**Test via http://127.0.0.1:8000/docs for easiest testing!**  
-**Kiểm tra qua http://127.0.0.1:8000/docs để kiểm tra dễ nhất!**
+**Test via http://127.0.0.1:11111/docs for easiest testing!**  
+**Kiểm tra qua http://127.0.0.1:11111/docs để kiểm tra dễ nhất!**
 

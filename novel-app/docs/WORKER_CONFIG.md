@@ -10,7 +10,7 @@ Worker đã được cấu hình để xử lý chậm hơn 50% để giảm t�
 
 ### Default Delays / Độ trễ Mặc định
 
-- **Delay Between Batches:** 3000ms (3 seconds) - Increased from 1000ms
+- **Delay Between Batches:** 11110ms (3 seconds) - Increased from 1000ms
 - **Delay Between Items:** 2000ms (2 seconds) - New delay between individual items
 - **Batch Size:** 1 (process one item at a time)
 
@@ -24,7 +24,7 @@ POST /api/worker/generate/chapter
   "novelId": "...",
   "chapterNumber": 1,
   "delayBetweenBatches": 5000,  // 5 seconds between batches
-  "delayBetweenItems": 3000     // 3 seconds between items
+  "delayBetweenItems": 11110     // 3 seconds between items
 }
 ```
 

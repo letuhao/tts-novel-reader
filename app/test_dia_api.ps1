@@ -7,13 +7,13 @@ Write-Host ""
 
 # Test 1: Health Check
 Write-Host "1. Testing health check..." -ForegroundColor Yellow
-$health = Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -Method Get
+$health = Invoke-RestMethod -Uri "http://127.0.0.1:11111/health" -Method Get
 Write-Host "   ✅ Health: $($health.status)" -ForegroundColor Green
 Write-Host ""
 
 # Test 2: Get Dia Model Info
 Write-Host "2. Getting Dia model info..." -ForegroundColor Yellow
-$modelInfo = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/tts/model/info" `
+$modelInfo = Invoke-RestMethod -Uri "http://127.0.0.1:11111/api/tts/model/info" `
     -Method Post `
     -ContentType "application/json" `
     -Body '{"model": "dia"}' | ConvertTo-Json
@@ -36,7 +36,7 @@ $requestBody = @{
 
 try {
     $outputPath = "dia_test_output.wav"
-    Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/tts/synthesize" `
+    Invoke-RestMethod -Uri "http://127.0.0.1:11111/api/tts/synthesize" `
         -Method Post `
         -ContentType "application/json" `
         -Body $requestBody `

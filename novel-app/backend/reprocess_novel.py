@@ -14,7 +14,7 @@ import time
 def check_backend():
     """Check if backend is running / Kiểm tra xem backend có đang chạy không"""
     try:
-        with urllib.request.urlopen("http://127.0.0.1:3000/health", timeout=3) as response:
+        with urllib.request.urlopen("http://127.0.0.1:11110/health", timeout=3) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode())
                 print(f"✅ Backend is running: {data.get('status', 'unknown')}")
@@ -31,7 +31,7 @@ def get_novel_id():
     print("=== Đang lấy Novel ID ===")
     
     try:
-        with urllib.request.urlopen("http://127.0.0.1:3000/api/novels", timeout=5) as response:
+        with urllib.request.urlopen("http://127.0.0.1:11110/api/novels", timeout=5) as response:
             data = json.loads(response.read().decode())
             
             novels = data.get('novels', [])
@@ -64,7 +64,7 @@ def reprocess_novel(novel_id):
     
     # Get novel file path from API
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:3000/api/novels/{novel_id}", timeout=5) as response:
+        with urllib.request.urlopen(f"http://127.0.0.1:11110/api/novels/{novel_id}", timeout=5) as response:
             data = json.loads(response.read().decode())
             novel = data.get('novel', {})
             file_path = novel.get('file_path')
@@ -86,7 +86,7 @@ def reprocess_novel(novel_id):
             }).encode('utf-8')
             
             req = urllib.request.Request(
-                "http://127.0.0.1:3000/api/novels/process",
+                "http://127.0.0.1:11110/api/novels/process",
                 data=request_data,
                 headers={'Content-Type': 'application/json'},
                 method='POST'

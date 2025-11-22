@@ -11,7 +11,7 @@ from pathlib import Path
 
 def test_dia_female_voice():
     """Test Dia TTS with different speaker IDs to find female voice"""
-    base_url = "http://127.0.0.1:8000"
+    base_url = "http://127.0.0.1:11111"
     
     print("=" * 60)
     print("Testing Dia TTS with Female Narrator Voice...")

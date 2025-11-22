@@ -15,7 +15,7 @@ def load_preset(preset_path):
     with open(preset_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def generate_with_preset(text, preset_path, output_path=None, base_url="http://127.0.0.1:8000"):
+def generate_with_preset(text, preset_path, output_path=None, base_url="http://127.0.0.1:11111"):
     """Generate speech using preset configuration"""
     
     # Load preset
@@ -90,7 +90,7 @@ def main():
     )
     parser.add_argument(
         "--base-url",
-        default="http://127.0.0.1:8000",
+        default="http://127.0.0.1:11111",
         help="Backend API base URL"
     )
     

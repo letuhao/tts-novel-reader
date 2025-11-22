@@ -36,7 +36,7 @@ def test_tts_api():
     print()
     
     # Prepare request
-    url = "http://127.0.0.1:8000/api/tts/synthesize"
+    url = "http://127.0.0.1:11111/api/tts/synthesize"
     data = json.dumps(request_body).encode('utf-8')
     
     req = urllib.request.Request(

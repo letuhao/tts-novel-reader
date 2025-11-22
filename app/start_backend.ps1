@@ -9,11 +9,11 @@ Set-Location $scriptDir
 $env:Path = "C:\Users\NeneScarlet\.local\bin;$env:Path"
 
 # Check if backend is already running
-$existingProcess = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+$existingProcess = Get-NetTCPConnection -LocalPort 11111 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
 
 if ($existingProcess) {
-    Write-Host "⚠️  Backend is already running on port 8000!" -ForegroundColor Yellow
-    Write-Host "⚠️  Backend đang chạy trên port 8000 rồi!" -ForegroundColor Yellow
+    Write-Host "⚠️  Backend is already running on port 11111!" -ForegroundColor Yellow
+    Write-Host "⚠️  Backend đang chạy trên port 11111 rồi!" -ForegroundColor Yellow
     Write-Host "   Process ID: $existingProcess" -ForegroundColor Cyan
     Write-Host "   Stop it first with: .\stop_backend.ps1" -ForegroundColor Yellow
     exit 1
@@ -48,14 +48,14 @@ Start-Sleep -Seconds 5
 
 # Check if it's running
 try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 3 -ErrorAction Stop
+    $response = Invoke-WebRequest -Uri "http://127.0.0.1:11111/health" -TimeoutSec 3 -ErrorAction Stop
     Write-Host ""
     Write-Host "✅ TTS Backend started successfully!" -ForegroundColor Green
     Write-Host "✅ TTS Backend đã được khởi động thành công!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "📡 Backend running at: http://127.0.0.1:8000" -ForegroundColor Cyan
-    Write-Host "📚 API Docs: http://127.0.0.1:8000/docs" -ForegroundColor Cyan
-    Write-Host "❤️  Health Check: http://127.0.0.1:8000/health" -ForegroundColor Cyan
+    Write-Host "📡 Backend running at: http://127.0.0.1:11111" -ForegroundColor Cyan
+    Write-Host "📚 API Docs: http://127.0.0.1:11111/docs" -ForegroundColor Cyan
+    Write-Host "❤️  Health Check: http://127.0.0.1:11111/health" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "📝 Logs: $logDir\backend_*.log" -ForegroundColor Gray
     Write-Host "🆔 Process ID: $($process.Id)" -ForegroundColor Gray
@@ -71,5 +71,5 @@ try {
     Write-Host "⚠️  Backend có thể vẫn đang khởi động..." -ForegroundColor Yellow
     Write-Host "   Process ID: $($process.Id)" -ForegroundColor Gray
     Write-Host "   Check logs: $logDir\backend_*.log" -ForegroundColor Gray
-    Write-Host "   Try: http://127.0.0.1:8000/docs in a few seconds" -ForegroundColor Cyan
+    Write-Host "   Try: http://127.0.0.1:11111/docs in a few seconds" -ForegroundColor Cyan
 }

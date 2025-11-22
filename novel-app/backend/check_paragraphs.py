@@ -8,7 +8,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "http://127.0.0.1:3000"
+BASE_URL = "http://127.0.0.1:11110"
 NOVEL_ID = "522e13ed-db50-4d2a-a0d9-92a3956d527d"
 CHAPTER_NUMBER = 1
 

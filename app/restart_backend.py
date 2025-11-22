@@ -198,7 +198,7 @@ def check_backend_health(max_attempts=10):
     
     for i in range(1, max_attempts + 1):
         try:
-            with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3) as response:
+            with urllib.request.urlopen("http://127.0.0.1:11111/health", timeout=3) as response:
                 if response.status == 200:
                     import json
                     data = json.loads(response.read().decode())

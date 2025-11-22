@@ -28,7 +28,7 @@ D:\Works\source\novel-reader\app\storage\audio\
 
 **Access / Truy cập:**
 ```
-http://127.0.0.1:8000/api/tts/audio/{file_id}
+http://127.0.0.1:11111/api/tts/audio/{file_id}
 ```
 
 ### 2. **Novel App Organized Storage** (Metadata & Tracking) / Lưu trữ Novel App Có Tổ chức (Metadata & Tracking)
@@ -83,7 +83,7 @@ GET /api/audio/:novelId/:chapterNumber?speakerId=05
     {
       "paragraphNumber": 0,
       "fileId": "abc123...",
-      "audioURL": "http://127.0.0.1:8000/api/tts/audio/abc123..."
+      "audioURL": "http://127.0.0.1:11111/api/tts/audio/abc123..."
     }
   ]
 }

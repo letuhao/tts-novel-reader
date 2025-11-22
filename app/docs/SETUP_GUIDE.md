@@ -140,16 +140,16 @@ python main.py
 
 ### Access API / Truy cập API
 
-- **API Docs:** http://127.0.0.1:8000/docs
-- **Health Check:** http://127.0.0.1:8000/health
-- **TTS Endpoints:** http://127.0.0.1:8000/api/tts/
+- **API Docs:** http://127.0.0.1:11111/docs
+- **Health Check:** http://127.0.0.1:11111/health
+- **TTS Endpoints:** http://127.0.0.1:11111/api/tts/
 
 ## 📝 API Usage Examples / Ví dụ Sử dụng API
 
 ### Synthesize with VieNeu-TTS / Tổng hợp với VieNeu-TTS
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/tts/synthesize" \
+curl -X POST "http://127.0.0.1:11111/api/tts/synthesize" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Xin chào, đây là một ví dụ về tổng hợp giọng nói tiếng Việt.",
@@ -163,7 +163,7 @@ curl -X POST "http://127.0.0.1:8000/api/tts/synthesize" \
 ### Synthesize with Dia TTS / Tổng hợp với Dia TTS
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/tts/synthesize" \
+curl -X POST "http://127.0.0.1:11111/api/tts/synthesize" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "[01] Xin chào, đây là một ví dụ về tổng hợp giọng nói tiếng Việt.",

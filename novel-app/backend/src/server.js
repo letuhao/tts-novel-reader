@@ -29,18 +29,84 @@ const app = express();
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: false, // Allow audio/other resources
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow cross-origin resource access
 }));
 app.use(compression());
+
+// CORS configuration - allow frontend origin
+// Note: Static files have their own CORS middleware below
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or same-origin requests)
+    // Allow requests from localhost:5173 (Vite dev server) and localhost:11110 (backend)
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:3000',
+      process.env.FRONTEND_URL
+    ].filter(Boolean);
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for development
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept'],
+  exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length', 'Content-Type']
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static files
-app.use('/static', express.static(path.join(__dirname, '../../storage')));
+// Static files - PUBLIC ACCESS (no CORS restrictions)
+// Allow anyone to access static files (audio, images, etc.)
+// This removes all CORS checks for /static/* routes
+app.options('/static/*', (req, res) => {
+  // Allow all origins - public access
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.sendStatus(204);
+});
+
+// CORS middleware for static files - PUBLIC ACCESS (no restrictions)
+// This ensures CORS headers are set before express.static processes the file
+app.use('/static', (req, res, next) => {
+  // Allow public access - no CORS restrictions
+  // Set wildcard origin (public access, no credentials needed)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type');
+  
+  next();
+});
+
+// Express static middleware supports Range requests by default
+// IMPORTANT: Re-apply CORS headers in setHeaders to ensure they're not overridden
+app.use('/static', express.static(path.join(__dirname, '../../storage'), {
+  setHeaders: (res, filePath, stat) => {
+    // CRITICAL: Re-apply CORS headers here (Express.static might override them)
+    // This ensures CORS headers are always set correctly
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type');
+    
+    // Set proper headers for audio files to support streaming
+    if (filePath.endsWith('.wav') || filePath.endsWith('.mp3') || filePath.endsWith('.ogg')) {
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', filePath.endsWith('.wav') ? 'audio/wav' : 
+                     filePath.endsWith('.mp3') ? 'audio/mpeg' : 'audio/ogg');
+    }
+  }
+}));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -86,7 +152,7 @@ app.use((req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 11110;
 const HOST = process.env.HOST || '0.0.0.0';
 
 app.listen(PORT, HOST, () => {

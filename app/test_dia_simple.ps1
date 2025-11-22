@@ -19,7 +19,7 @@ Write-Host ""
 
 try {
     $outputPath = "dia_test_output.wav"
-    Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/tts/synthesize" `
+    Invoke-WebRequest -Uri "http://127.0.0.1:11111/api/tts/synthesize" `
         -Method Post `
         -ContentType "application/json" `
         -Body $body `

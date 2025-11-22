@@ -11,7 +11,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 LOGS_DIR = SCRIPT_DIR / "logs"
 PID_FILE = LOGS_DIR / "backend_pid.txt"
-PORT = int(os.getenv("PORT", "3000"))
+PORT = int(os.getenv("PORT", "11110"))
 
 def stop_backend():
     """Stop the backend / Dừng backend"""

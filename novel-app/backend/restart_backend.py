@@ -80,7 +80,7 @@ def stop_backend():
                 
                 if cmd_result.returncode == 0:
                     cmd_line = cmd_result.stdout
-                    if 'server.js' in cmd_line or 'src/server.js' in cmd_line or ':3000' in cmd_line:
+                    if 'server.js' in cmd_line or 'src/server.js' in cmd_line or ':11110' in cmd_line:
                         print(f"Stopping process PID {pid}...")
                         print(f"Đang dừng tiến trình PID {pid}...")
                         try:
@@ -258,7 +258,7 @@ def check_backend_health(max_attempts=10):
     
     for i in range(1, max_attempts + 1):
         try:
-            with urllib.request.urlopen("http://127.0.0.1:3000/health", timeout=3) as response:
+            with urllib.request.urlopen("http://127.0.0.1:11110/health", timeout=3) as response:
                 if response.status == 200:
                     import json
                     data = json.loads(response.read().decode())

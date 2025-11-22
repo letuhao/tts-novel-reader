@@ -6,7 +6,7 @@ import requests
 import json
 from pathlib import Path
 
-BASE_URL = "http://127.0.0.1:3000"
+BASE_URL = "http://127.0.0.1:11110"
 NOVEL_FILE = Path(__file__).parent.parent / "novels" / "Bắt đầu biến thân nữ điều tra quan (1-54 chương) (cao H, biến thân).txt"
 
 def test_process_existing_file():

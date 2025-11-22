@@ -94,7 +94,7 @@ python test_worker.py
     "cached": false,
     "chapterNumber": 1,
     "fileId": "abc123...",
-    "audioURL": "http://127.0.0.1:8000/api/tts/audio/abc123...",
+    "audioURL": "http://127.0.0.1:11111/api/tts/audio/abc123...",
     "expiresAt": "2026-01-01T12:00:00",
     "message": "Audio generated successfully"
   }

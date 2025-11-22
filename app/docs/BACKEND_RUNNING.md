@@ -81,12 +81,12 @@ Access logs được tắt theo mặc định khi chạy `main.py` trực tiếp
 ### Check Health / Kiểm tra Sức khỏe
 
 ```powershell
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:11111/health
 ```
 
 ### Open API Docs / Mở API Docs
 
-Visit: **http://127.0.0.1:8000/docs**
+Visit: **http://127.0.0.1:11111/docs**
 
 ### Check Process / Kiểm tra Process
 
@@ -115,8 +115,8 @@ Stop-Process -Id $proc.Id -Force
 ### Method 3: Kill by Port / Phương pháp 3: Kill theo Port
 
 ```powershell
-# Find process using port 8000
-$proc = Get-NetTCPConnection -LocalPort 8000 | Select-Object -ExpandProperty OwningProcess
+# Find process using port 11111
+$proc = Get-NetTCPConnection -LocalPort 11111 | Select-Object -ExpandProperty OwningProcess
 Stop-Process -Id $proc -Force
 ```
 
@@ -124,7 +124,7 @@ Stop-Process -Id $proc -Force
 
 ```powershell
 # Health check
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:11111/health
 
 # Check if process exists
 Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*main.py*" }

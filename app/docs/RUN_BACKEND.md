@@ -39,8 +39,8 @@ python start_backend.py
 
 **Output:**
 - ✅ Backend started successfully
-- 📡 URL: http://127.0.0.1:8000
-- 📚 Docs: http://127.0.0.1:8000/docs
+- 📡 URL: http://127.0.0.1:11111
+- 📚 Docs: http://127.0.0.1:11111/docs
 - 🆔 Process ID saved
 
 ### 2. Test API / Kiểm tra API
@@ -74,9 +74,9 @@ Logs are saved to `logs/` directory:
 
 ### Backend won't start / Backend không khởi động
 
-1. Check if port 8000 is already in use:
+1. Check if port 11111 is already in use:
    ```powershell
-   netstat -ano | findstr :8000
+   netstat -ano | findstr :11111
    ```
 
 2. Stop existing backend:
@@ -101,7 +101,7 @@ Increase timeout in `test_dia.py` if needed.
 
 1. **First run:** Model loading takes time - be patient!
 2. **Check logs:** If issues occur, check `logs/backend_error.log`
-3. **API Docs:** Visit http://127.0.0.1:8000/docs for interactive testing
+3. **API Docs:** Visit http://127.0.0.1:11111/docs for interactive testing
 4. **Test script:** `test_dia.py` shows how to use the API
 
 ---

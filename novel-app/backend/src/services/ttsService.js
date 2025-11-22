@@ -6,8 +6,8 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
 export class TTSService {
-  constructor(baseURL = 'http://127.0.0.1:8000') {
-    this.baseURL = baseURL || process.env.TTS_BACKEND_URL || 'http://127.0.0.1:8000';
+  constructor(baseURL = 'http://127.0.0.1:11111') {
+    this.baseURL = baseURL || process.env.TTS_BACKEND_URL || 'http://127.0.0.1:11111';
     this.defaultSpeaker = process.env.TTS_DEFAULT_SPEAKER || '05';
     this.defaultExpiryHours = parseInt(process.env.TTS_DEFAULT_EXPIRY_HOURS || '365');
     this.defaultModel = process.env.TTS_DEFAULT_MODEL || 'dia';

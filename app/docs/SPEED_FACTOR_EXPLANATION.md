@@ -67,13 +67,13 @@ speedFactor: 0.90  // 10% slower - minimal resampling effect
 
 ### Version 1.0x (Normal Speed)
 - **File ID:** `65eb207cf31d592b38e2a734cf5f721d`
-- **URL:** `http://127.0.0.1:8000/api/tts/audio/65eb207cf31d592b38e2a734cf5f721d`
+- **URL:** `http://127.0.0.1:11111/api/tts/audio/65eb207cf31d592b38e2a734cf5f721d`
 - **Quality:** Should match preset `dia_female_05.wav`
 - **Speed:** Normal (fast, but natural voice)
 
 ### Version 0.85x (15% Slower)
 - **File ID:** `bb6acc76d3ea1a049ca8552fda96fe0b`
-- **URL:** `http://127.0.0.1:8000/api/tts/audio/bb6acc76d3ea1a049ca8552fda96fe0b`
+- **URL:** `http://127.0.0.1:11111/api/tts/audio/bb6acc76d3ea1a049ca8552fda96fe0b`
 - **Quality:** Resampled (may sound slightly different)
 - **Speed:** 15% slower (easier to follow)
 

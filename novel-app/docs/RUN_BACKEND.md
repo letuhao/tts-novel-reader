@@ -36,8 +36,8 @@ python start_backend.py
 
 **Output:**
 - ✅ Backend started successfully
-- 📡 URL: http://127.0.0.1:3000
-- 📚 API: http://127.0.0.1:3000/api
+- 📡 URL: http://127.0.0.1:11110
+- 📚 API: http://127.0.0.1:11110/api
 - 🆔 Process ID saved
 
 ### 2. Check Logs / Kiểm tra Logs
@@ -60,9 +60,9 @@ python stop_backend.py
 
 ### Backend won't start / Backend không khởi động
 
-1. Check if port 3000 is already in use:
+1. Check if port 11110 is already in use:
    ```powershell
-   netstat -ano | findstr :3000
+   netstat -ano | findstr :11110
    ```
 
 2. Stop existing backend:
@@ -84,9 +84,9 @@ node --version
 
 ### TTS Backend Connection / Kết nối TTS Backend
 
-Make sure TTS backend is running on port 8000:
+Make sure TTS backend is running on port 11111:
 ```powershell
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:11111/health
 ```
 
 If not running, start it:

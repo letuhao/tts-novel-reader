@@ -17,9 +17,17 @@ export class ParagraphModel {
       ORDER BY paragraph_number ASC
     `).all(chapterId);
     
+    // Convert snake_case database columns to camelCase
     return paragraphs.map(paragraph => ({
-      ...paragraph,
-      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null
+      id: paragraph.id,
+      novelId: paragraph.novel_id,
+      chapterId: paragraph.chapter_id,
+      chapterNumber: paragraph.chapter_number,
+      paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
+      text: paragraph.text,
+      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      createdAt: paragraph.created_at,
+      updatedAt: paragraph.updated_at
     }));
   }
   
@@ -35,9 +43,17 @@ export class ParagraphModel {
       ORDER BY paragraph_number ASC
     `).all(novelId, chapterNumber);
     
+    // Convert snake_case database columns to camelCase
     return paragraphs.map(paragraph => ({
-      ...paragraph,
-      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null
+      id: paragraph.id,
+      novelId: paragraph.novel_id,
+      chapterId: paragraph.chapter_id,
+      chapterNumber: paragraph.chapter_number,
+      paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
+      text: paragraph.text,
+      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      createdAt: paragraph.created_at,
+      updatedAt: paragraph.updated_at
     }));
   }
   
@@ -51,9 +67,17 @@ export class ParagraphModel {
     
     if (!paragraph) return null;
     
+    // Convert snake_case database columns to camelCase
     return {
-      ...paragraph,
-      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null
+      id: paragraph.id,
+      novelId: paragraph.novel_id,
+      chapterId: paragraph.chapter_id,
+      chapterNumber: paragraph.chapter_number,
+      paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
+      text: paragraph.text,
+      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      createdAt: paragraph.created_at,
+      updatedAt: paragraph.updated_at
     };
   }
   
@@ -70,9 +94,17 @@ export class ParagraphModel {
     
     if (!paragraph) return null;
     
+    // Convert snake_case database columns to camelCase
     return {
-      ...paragraph,
-      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null
+      id: paragraph.id,
+      novelId: paragraph.novel_id,
+      chapterId: paragraph.chapter_id,
+      chapterNumber: paragraph.chapter_number,
+      paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
+      text: paragraph.text,
+      lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      createdAt: paragraph.created_at,
+      updatedAt: paragraph.updated_at
     };
   }
   

@@ -17,7 +17,7 @@ export class AudioWorker {
   constructor(options = {}) {
     this.audioStorage = getAudioStorage();
     this.batchSize = options.batchSize || 1; // Process N items at a time
-    this.delayBetweenBatches = options.delayBetweenBatches || 3000; // ms - Increased for slower processing (50% slower)
+    this.delayBetweenBatches = options.delayBetweenBatches || 11110; // ms - Increased for slower processing (50% slower)
     this.delayBetweenItems = options.delayBetweenItems || 2000; // ms - Delay between individual items
     this.maxRetries = options.maxRetries || 3;
            this.speakerId = options.speakerId || '05';

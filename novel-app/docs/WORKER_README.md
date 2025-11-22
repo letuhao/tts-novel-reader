@@ -10,7 +10,7 @@ Worker đã tạo audio thành công cho Chapter 1!
 **Chapter 1 Audio Generated:**
 - ✅ Generated in 64.2 seconds
 - ✅ File ID: `4c9f1f853f5989be5b6759aee3d51c99`
-- ✅ Audio URL: `http://127.0.0.1:8000/api/tts/audio/4c9f1f853f5989be5b6759aee3d51c99`
+- ✅ Audio URL: `http://127.0.0.1:11111/api/tts/audio/4c9f1f853f5989be5b6759aee3d51c99`
 - ✅ Expires: 2026-11-22 (365 days)
 - ✅ Status: Valid
 
@@ -78,7 +78,7 @@ Generate audio for Chapter 1:
 import requests
 
 response = requests.post(
-    "http://127.0.0.1:3000/api/worker/generate/chapter",
+    "http://127.0.0.1:11110/api/worker/generate/chapter",
     json={
         "novelId": "522e13ed-db50-4d2a-a0d9-92a3956d527d",
         "chapterNumber": 1,
@@ -93,7 +93,7 @@ audio_url = result["result"]["audioURL"]
 Check status:
 ```python
 response = requests.get(
-    "http://127.0.0.1:3000/api/worker/status/522e13ed-db50-4d2a-a0d9-92a3956d527d/1"
+    "http://127.0.0.1:11110/api/worker/status/522e13ed-db50-4d2a-a0d9-92a3956d527d/1"
 )
 
 status = response.json()["status"]

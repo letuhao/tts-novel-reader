@@ -29,17 +29,17 @@ if pid_file.exists():
     except (ValueError, FileNotFoundError):
         pass
 
-# Method 2: Find process using port 8000 (Windows)
+# Method 2: Find process using port 11111 (Windows)
 if sys.platform == "win32":
     try:
-        # Use netstat to find process using port 8000
+        # Use netstat to find process using port 11111
         result = subprocess.run(
             ["netstat", "-ano"],
             capture_output=True,
             text=True
         )
         for line in result.stdout.splitlines():
-            if ":8000" in line and "LISTENING" in line:
+            if ":11111" in line and "LISTENING" in line:
                 parts = line.split()
                 if len(parts) > 0:
                     try:
@@ -80,11 +80,11 @@ if processes_to_stop:
 else:
     # Final check if backend is actually running
     try:
-        urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=2)
+        urllib.request.urlopen("http://127.0.0.1:11111/health", timeout=2)
         print("   ⚠️  Backend appears to be running but couldn't find process ID")
         print("   ⚠️  Backend có vẻ đang chạy nhưng không tìm thấy process ID")
         print("   Try killing Python processes manually")
     except (urllib.error.URLError, OSError):
-        print("   ℹ️  No TTS Backend process found on port 8000")
-        print("   ℹ️  Không tìm thấy process TTS Backend trên port 8000")
+        print("   ℹ️  No TTS Backend process found on port 11111")
+        print("   ℹ️  Không tìm thấy process TTS Backend trên port 11111")
 

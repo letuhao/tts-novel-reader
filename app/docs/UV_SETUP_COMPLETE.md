@@ -53,9 +53,9 @@ python main.py
 ### Access API / Truy cập API
 
 Once the service starts:
-- **API Docs:** http://127.0.0.1:8000/docs
-- **Health Check:** http://127.0.0.1:8000/health
-- **TTS Endpoints:** http://127.0.0.1:8000/api/tts/
+- **API Docs:** http://127.0.0.1:11111/docs
+- **Health Check:** http://127.0.0.1:11111/health
+- **TTS Endpoints:** http://127.0.0.1:11111/api/tts/
 
 ## 💡 Important: Using uv / Quan trọng: Sử dụng uv
 

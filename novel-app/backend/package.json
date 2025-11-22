@@ -5,6 +5,9 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "clean:db": "node scripts/clean_all.js",
+    "clean:storage": "node scripts/clean_storage.js",
+    "clean:all": "node scripts/clean_all.js && node scripts/clean_storage.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "node --test",

@@ -38,7 +38,7 @@ The changes we made to add:
    cd D:\Works\source\novel-reader\novel-app\backend
    python stop_backend.py
    # OR
-   # Find and kill the Node.js process on port 3000
+   # Find and kill the Node.js process on port 11110
    ```
 
 2. **Start the Node.js backend again:**
@@ -51,7 +51,7 @@ The changes we made to add:
 
 3. **Verify it's running:**
    ```powershell
-   curl http://127.0.0.1:3000/health
+   curl http://127.0.0.1:11110/health
    ```
 
 4. **Retry audio generation:**

@@ -52,7 +52,7 @@ X-Expires-At: 2025-01-01T12:00:00
 
 **Usage:**
 ```bash
-curl http://127.0.0.1:8000/api/tts/audio/abc123def456
+curl http://127.0.0.1:11111/api/tts/audio/abc123def456
 ```
 
 ### 3. Get File Metadata / Lấy Metadata File
@@ -61,7 +61,7 @@ curl http://127.0.0.1:8000/api/tts/audio/abc123def456
 
 **Usage:**
 ```bash
-curl http://127.0.0.1:8000/api/tts/audio/abc123def456/metadata
+curl http://127.0.0.1:11111/api/tts/audio/abc123def456/metadata
 ```
 
 **Response:**
@@ -89,7 +89,7 @@ curl http://127.0.0.1:8000/api/tts/audio/abc123def456/metadata
 
 **Usage:**
 ```bash
-curl -X DELETE http://127.0.0.1:8000/api/tts/audio/abc123def456
+curl -X DELETE http://127.0.0.1:11111/api/tts/audio/abc123def456
 ```
 
 ### 5. Storage Statistics / Thống kê Lưu trữ
@@ -98,7 +98,7 @@ curl -X DELETE http://127.0.0.1:8000/api/tts/audio/abc123def456
 
 **Usage:**
 ```bash
-curl http://127.0.0.1:8000/api/tts/storage/stats
+curl http://127.0.0.1:11111/api/tts/storage/stats
 ```
 
 **Response:**
@@ -121,7 +121,7 @@ curl http://127.0.0.1:8000/api/tts/storage/stats
 
 **Usage:**
 ```bash
-curl -X POST http://127.0.0.1:8000/api/tts/storage/cleanup
+curl -X POST http://127.0.0.1:11111/api/tts/storage/cleanup
 ```
 
 ## 💡 Microservice Workflow / Quy trình Microservice
@@ -130,7 +130,7 @@ curl -X POST http://127.0.0.1:8000/api/tts/storage/cleanup
 
 ```python
 # 1. Generate and store
-response = requests.post("http://tts-service:8000/api/tts/synthesize", json={
+response = requests.post("http://tts-service:11111/api/tts/synthesize", json={
     "text": "[05] Your text",
     "model": "dia",
     "store": True,
@@ -153,10 +153,10 @@ file_id = file_metadata["file_id"]
 
 ```python
 # Get audio file
-audio_response = requests.get(f"http://tts-service:8000/api/tts/audio/{file_id}")
+audio_response = requests.get(f"http://tts-service:11111/api/tts/audio/{file_id}")
 
 # Get metadata
-metadata_response = requests.get(f"http://tts-service:8000/api/tts/audio/{file_id}/metadata")
+metadata_response = requests.get(f"http://tts-service:11111/api/tts/audio/{file_id}/metadata")
 metadata = metadata_response.json()["metadata"]
 
 # Check expiration
@@ -170,7 +170,7 @@ if datetime.now() > expires_at:
 
 ```python
 # Generate without storing
-response = requests.post("http://tts-service:8000/api/tts/synthesize", json={
+response = requests.post("http://tts-service:11111/api/tts/synthesize", json={
     "text": "[05] Your text",
     "model": "dia",
     "store": False,
