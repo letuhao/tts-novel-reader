@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import type { Paragraph } from '../../types'
-import { sanitizeText } from '../../utils/sanitize'
 
 interface ChapterContentProps {
   paragraphs: Paragraph[]
@@ -55,7 +54,7 @@ function ChapterContent({
           `}
           onClick={() => onParagraphClick?.(paragraph.paragraphNumber)}
         >
-          {sanitizeText(paragraph.text)}
+          {paragraph.text}
         </p>
       ))}
     </div>

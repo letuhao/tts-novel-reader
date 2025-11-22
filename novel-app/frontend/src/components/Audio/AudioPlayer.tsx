@@ -11,7 +11,7 @@
  * - Shows current paragraph being played
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, X } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, RotateCcw, X } from 'lucide-react'
 import { Howl } from 'howler'
 import { useAudioStore } from '../../store/useAudioStore'
 import { useReaderStore } from '../../store/useReaderStore'
@@ -141,6 +141,10 @@ function AudioPlayer() {
       progressIntervalRef.current = null
     }
 
+    // Reset progress when switching to new audio file
+    // Đặt lại tiến độ khi chuyển sang file audio mới
+    setCurrentTime(0)
+    setDuration(0)
     setIsLoading(true)
     setCurrentParagraph(audioFile.paragraphNumber)
 
@@ -325,6 +329,46 @@ function AudioPlayer() {
     }
   }
 
+  const handleReplay = () => {
+    if (currentHowl) {
+      currentHowl.seek(0)
+      setCurrentTime(0)
+      if (!currentHowl.playing()) {
+        currentHowl.play()
+        playAction()
+      }
+    }
+  }
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!currentHowl || !duration || isLoading) return
+    
+    const rect = e.currentTarget.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const percentage = Math.max(0, Math.min(1, clickX / rect.width))
+    const seekTime = percentage * duration
+    
+    handleSeekToTime(seekTime)
+  }
+
+  const handleSeekToTime = (seekTime: number) => {
+    if (!currentHowl || !duration || isLoading) return
+    
+    const clampedTime = Math.max(0, Math.min(duration, seekTime))
+    currentHowl.seek(clampedTime)
+    setCurrentTime(clampedTime)
+    
+    // Resume playing if it was playing before
+    if (isPlaying && !currentHowl.playing()) {
+      currentHowl.play()
+    }
+  }
+
+  const handleProgressHover = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Could add tooltip showing hover time here if needed
+    // For now, we just handle the click for seeking
+  }
+
   const handleClose = useCallback(() => {
     // Clean up audio
     if (currentHowl) {
@@ -378,7 +422,7 @@ function AudioPlayer() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-lg z-50">
-      <div className="container mx-auto px-4 py-3">
+      <div className="container mx-auto px-4 py-3 max-w-7xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex-1 min-w-0">
@@ -401,11 +445,27 @@ function AudioPlayer() {
           </button>
         </div>
 
-        {/* Progress Bar */}
+        {/* Progress Bar - Clickable for seeking */}
         <div className="mb-3">
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-1">
+          <div 
+            className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-1 cursor-pointer relative"
+            onClick={handleSeek}
+            onMouseMove={handleProgressHover}
+            role="progressbar"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault()
+                const seekTime = e.key === 'ArrowLeft' 
+                  ? Math.max(0, currentTime - 5)
+                  : Math.min(duration, currentTime + 5)
+                handleSeekToTime(seekTime)
+              }
+            }}
+            aria-label="Audio progress bar - click to seek"
+          >
             <div
-              className="bg-primary-600 h-2 rounded-full transition-all"
+              className="bg-primary-600 h-2 rounded-full transition-all pointer-events-none"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -443,6 +503,17 @@ function AudioPlayer() {
               ) : (
                 <Play className="w-5 h-5" />
               )}
+            </button>
+
+            <button
+              onClick={handleReplay}
+              disabled={isLoading || !currentFile || !currentHowl}
+              className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label="Replay current paragraph"
+              type="button"
+              title="Replay from beginning"
+            >
+              <RotateCcw className="w-5 h-5" />
             </button>
 
             <button

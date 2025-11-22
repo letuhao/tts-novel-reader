@@ -95,26 +95,57 @@ export class AudioWorker {
         }
 
         try {
-          // Check if paragraph audio already exists
+          // Check if paragraph audio already exists (skip if exists and not forcing regeneration)
+          // Kiểm tra xem audio paragraph đã tồn tại chưa (bỏ qua nếu đã có và không buộc tạo lại)
           if (!forceRegenerate) {
+            // Check both database entry AND physical file existence
+            // Kiểm tra cả entry trong database VÀ sự tồn tại của file vật lý
             const existingAudio = await AudioCacheModel.getByParagraph(
               novelId,
               chapter.id,
-              paragraph.id
+              paragraph.id,
+              speakerId
             );
+            
             if (existingAudio) {
               const expiresAt = new Date(existingAudio.expires_at);
-              if (expiresAt > new Date()) {
-                paragraphResults.push({
-                  success: true,
-                  cached: true,
-                  paragraphNumber: paragraph.paragraphNumber,
-                  paragraphId: paragraph.id,
-                  fileId: existingAudio.tts_file_id,
-                  audioURL: this.audioStorage.getAudioURL(existingAudio.tts_file_id),
-                  text: paragraphText.substring(0, 50) + '...'
-                });
-                continue; // Skip generation, use cached
+              const isValid = expiresAt > new Date();
+              
+              if (isValid) {
+                // Check if physical file exists
+                // Kiểm tra xem file vật lý có tồn tại không
+                let fileExists = false;
+                if (existingAudio.local_audio_path) {
+                  try {
+                    const fs = await import('fs/promises');
+                    const stats = await fs.stat(existingAudio.local_audio_path);
+                    fileExists = stats.isFile() && stats.size > 0;
+                  } catch (e) {
+                    // File doesn't exist, will regenerate
+                    fileExists = false;
+                  }
+                }
+                
+                if (fileExists) {
+                  console.log(`[Worker] ⏭️ Skipping paragraph ${paragraph.paragraphNumber} - Audio already exists`);
+                  console.log(`[Worker] ⏭️ Bỏ qua paragraph ${paragraph.paragraphNumber} - Audio đã tồn tại`);
+                  paragraphResults.push({
+                    success: true,
+                    cached: true,
+                    skipped: true,
+                    paragraphNumber: paragraph.paragraphNumber,
+                    paragraphId: paragraph.id,
+                    fileId: existingAudio.tts_file_id,
+                    audioURL: this.audioStorage.getAudioURL(existingAudio.tts_file_id),
+                    localAudioPath: existingAudio.local_audio_path,
+                    text: paragraphText.substring(0, 50) + '...'
+                  });
+                  continue; // Skip generation, use cached
+                } else {
+                  console.log(`[Worker] ⚠️ Database entry exists but file missing, will regenerate paragraph ${paragraph.paragraphNumber}`);
+                }
+              } else {
+                console.log(`[Worker] ⚠️ Audio expired for paragraph ${paragraph.paragraphNumber}, will regenerate`);
               }
             }
           }
@@ -172,7 +203,8 @@ export class AudioWorker {
               paragraphId: paragraph.id,    // Include paragraph database ID
               paragraphIndex: i,            // Include paragraph index in chapter (for navigation)
               totalParagraphsInChapter: chapter.paragraphs.length,  // Total paragraphs for progress (e.g., "5 of 112")
-              model: 'dia'                  // Include model name
+              model: 'dia',                 // Include model name
+              forceRegenerate: forceRegenerate  // Pass forceRegenerate flag to skip existing audio check
             }
           );
           
@@ -394,14 +426,42 @@ export class AudioWorker {
    * @returns {Promise<Object>} Generation results
    */
   async generateAllChapters(novelId, options = {}) {
-    const novel = await NovelModel.getById(novelId);
-    if (!novel) {
-      throw new Error(`Novel not found: ${novelId}`);
-    }
+    try {
+      const novel = await NovelModel.getById(novelId);
+      if (!novel) {
+        throw new Error(`Novel not found: ${novelId}`);
+      }
 
-    const allChapterNumbers = novel.chapters.map(ch => ch.chapterNumber);
-    
-    return await this.generateBatchAudio(novelId, allChapterNumbers, options);
+      if (!novel.chapters || !Array.isArray(novel.chapters) || novel.chapters.length === 0) {
+        console.error(`[Worker] [generateAllChapters] Novel ${novelId} has no chapters`);
+        throw new Error(`Novel ${novelId} has no chapters`);
+      }
+
+      // Extract chapter numbers - handle both camelCase (chapterNumber) and snake_case (chapter_number)
+      // Trích xuất số chapter - xử lý cả camelCase (chapterNumber) và snake_case (chapter_number)
+      const allChapterNumbers = novel.chapters.map(ch => {
+        // Try camelCase first, fall back to snake_case
+        // Thử camelCase trước, nếu không có thì dùng snake_case
+        const chapterNum = ch.chapterNumber !== undefined ? ch.chapterNumber : ch.chapter_number;
+        return chapterNum !== undefined && chapterNum !== null ? parseInt(chapterNum) : null;
+      }).filter(num => num !== null && num !== undefined && !isNaN(num)); // Filter out invalid numbers
+      
+      if (allChapterNumbers.length === 0) {
+        console.error(`[Worker] [generateAllChapters] Novel ${novelId} has no valid chapter numbers`);
+        console.error(`[Worker] [generateAllChapters] Raw chapters data:`, JSON.stringify(novel.chapters.slice(0, 3), null, 2));
+        throw new Error(`Novel ${novelId} has no valid chapter numbers`);
+      }
+
+      console.log(`[Worker] [generateAllChapters] Generating audio for ${allChapterNumbers.length} chapters in novel ${novelId}`);
+      console.log(`[Worker] [generateAllChapters] Đang tạo audio cho ${allChapterNumbers.length} chapters trong novel ${novelId}`);
+      console.log(`[Worker] [generateAllChapters] Chapter numbers: ${allChapterNumbers.slice(0, 10).join(', ')}${allChapterNumbers.length > 10 ? '...' : ''}`);
+      
+      return await this.generateBatchAudio(novelId, allChapterNumbers, options);
+    } catch (error) {
+      console.error(`[Worker] [generateAllChapters] ERROR: ${error.message}`);
+      console.error(`[Worker] [generateAllChapters] Stack: ${error.stack}`);
+      throw error;
+    }
   }
 
   /**

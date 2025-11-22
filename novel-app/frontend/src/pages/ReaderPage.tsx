@@ -32,7 +32,7 @@ function ReaderPage() {
     setCurrentParagraph
   } = useReaderStore()
 
-  const { setAudioFiles, setCurrentAudioIndex } = useAudioStore()
+  const { audioFiles, setAudioFiles, setCurrentAudioIndex, currentAudio, play: playAudio } = useAudioStore()
   const { 
     status: generationStatus, 
     progress: generationProgress,
@@ -48,6 +48,7 @@ function ReaderPage() {
   
   const [showResumePrompt, setShowResumePrompt] = useState(false)
   const [hasLoadedProgress, setHasLoadedProgress] = useState(false)
+  const [forceRegenerate, setForceRegenerate] = useState(false)
   const paragraphRefs = useRef<Map<number, HTMLParagraphElement>>(new Map())
 
   useEffect(() => {
@@ -137,6 +138,7 @@ function ReaderPage() {
       const result = await audioService.generateChapter(id, chapterNumber, {
         speakerId: AUDIO_CONFIG.DEFAULT_SPEAKER_ID,
         speedFactor: AUDIO_CONFIG.DEFAULT_SPEED_FACTOR,
+        forceRegenerate: forceRegenerate,
       })
 
       if (result.success) {
@@ -160,6 +162,7 @@ function ReaderPage() {
       const result = await audioService.generateAllChapters(id, {
         speakerId: AUDIO_CONFIG.DEFAULT_SPEAKER_ID,
         speedFactor: AUDIO_CONFIG.DEFAULT_SPEED_FACTOR,
+        forceRegenerate: forceRegenerate,
       })
 
       if (result.success) {
@@ -222,6 +225,33 @@ function ReaderPage() {
     setShowResumePrompt(false)
     if (paragraphs && paragraphs.length > 0) {
       setCurrentParagraph(1)
+    }
+  }
+
+  const handleParagraphClick = (paragraphNumber: number) => {
+    // Jump to the clicked paragraph's audio
+    // Nhảy tới audio của paragraph được click
+    if (!audioFiles || audioFiles.length === 0) return
+    
+    // Find the audio file for this paragraph
+    const audioIndex = audioFiles.findIndex(f => f.paragraphNumber === paragraphNumber)
+    
+    if (audioIndex >= 0) {
+      // Set current audio index and start playing
+      setCurrentAudioIndex(audioIndex)
+      setCurrentParagraph(paragraphNumber)
+      
+      // If audio player is available, start playing from this paragraph
+      // Nếu audio player có sẵn, bắt đầu phát từ paragraph này
+      if (currentAudio) {
+        try {
+          currentAudio.seek(0) // Start from beginning of paragraph
+          currentAudio.play()
+          playAudio()
+        } catch (error) {
+          logError('Failed to start playback from paragraph', error)
+        }
+      }
     }
   }
 
@@ -296,38 +326,63 @@ function ReaderPage() {
 
       {/* Generate Audio Buttons */}
       {paragraphs && paragraphs.length > 0 && (
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <button
-            onClick={handleGenerateAudio}
-            disabled={generationStatus === 'generating'}
-            className="btn-primary flex items-center space-x-2"
-            type="button"
-          >
-            <Play className="w-5 h-5" />
-            <span>
-              {generationStatus === 'generating' 
-                ? `Generating Audio... (${generationProgress?.completed || 0}/${generationProgress?.total || 0})`
-                : 'Generate Audio for Chapter'
-              }
-            </span>
-          </button>
-          
-          {id && currentNovel && (
-            <button
-              onClick={handleGenerateAllChapters}
+        <div className="mb-4 space-y-3">
+          {/* Force Regenerate Checkbox */}
+          <div className="flex items-center space-x-2">
+            <input
+              id="force-regenerate-checkbox"
+              type="checkbox"
+              checked={forceRegenerate}
+              onChange={(e) => setForceRegenerate(e.target.checked)}
               disabled={generationStatus === 'generating'}
-              className="btn-secondary flex items-center space-x-2"
+              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+            />
+            <label
+              htmlFor="force-regenerate-checkbox"
+              className={`text-sm font-medium ${
+                generationStatus === 'generating'
+                  ? 'text-gray-400 dark:text-gray-600'
+                  : 'text-gray-700 dark:text-gray-300'
+              } cursor-pointer`}
+            >
+              Force Regenerate (skip already-generated audio files by default)
+            </label>
+          </div>
+
+          {/* Generate Buttons */}
+          <div className="flex items-center justify-between gap-4">
+            <button
+              onClick={handleGenerateAudio}
+              disabled={generationStatus === 'generating'}
+              className="btn-primary flex items-center space-x-2"
               type="button"
             >
               <Play className="w-5 h-5" />
               <span>
                 {generationStatus === 'generating' 
-                  ? `Generating All Chapters...`
-                  : `Generate All Chapters (${currentNovel.totalChapters || 0})`
+                  ? `Generating Audio... (${generationProgress?.completed || 0}/${generationProgress?.total || 0})`
+                  : 'Generate Audio for Chapter'
                 }
               </span>
             </button>
-          )}
+            
+            {id && currentNovel && (
+              <button
+                onClick={handleGenerateAllChapters}
+                disabled={generationStatus === 'generating'}
+                className="btn-secondary flex items-center space-x-2"
+                type="button"
+              >
+                <Play className="w-5 h-5" />
+                <span>
+                  {generationStatus === 'generating' 
+                    ? `Generating All Chapters...`
+                    : `Generate All Chapters (${currentNovel.totalChapters || 0})`
+                  }
+                </span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -346,6 +401,7 @@ function ReaderPage() {
           paragraphs={paragraphs}
           currentParagraphNumber={currentParagraphNumber || 0}
           paragraphRefs={paragraphRefs}
+          onParagraphClick={handleParagraphClick}
         />
       )}
     </div>

@@ -166,7 +166,8 @@ export class AudioStorageService {
       chapterTitle = null,  // Chapter title for organization (optional)
       novelTitle = null,    // Novel title for organization (optional)
       paragraphId = null,   // Paragraph database ID (optional, for linking)
-      paragraphIndex = null // Paragraph index in chapter (optional, for navigation)
+      paragraphIndex = null, // Paragraph index in chapter (optional, for navigation)
+      forceRegenerate = false  // Force regeneration even if audio exists
     } = options;
     
     console.log(`[AudioStorage] ==========================================`);
@@ -177,8 +178,31 @@ export class AudioStorageService {
     console.log(`[AudioStorage] Paragraph: ${paragraphNumber}`);
     console.log(`[AudioStorage] Text length: ${text.length} chars`);
     console.log(`[AudioStorage] Text preview: ${text.substring(0, 100)}...`);
+    console.log(`[AudioStorage] Force regenerate: ${forceRegenerate}`);
     
     try {
+      // Check if audio already exists (skip if exists and not forcing regeneration)
+      // Kiểm tra xem audio đã tồn tại chưa (bỏ qua nếu đã có và không buộc tạo lại)
+      if (!forceRegenerate && paragraphNumber !== null && paragraphNumber !== undefined) {
+        const existingAudio = await this.checkExistingAudio(novelId, chapterNumber, paragraphNumber, speakerId);
+        if (existingAudio && existingAudio.exists && existingAudio.valid) {
+          console.log(`[AudioStorage] ⏭️ Skipping generation - Audio already exists`);
+          console.log(`[AudioStorage] ⏭️ Bỏ qua tạo - Audio đã tồn tại`);
+          console.log(`[AudioStorage]   - Paragraph: ${paragraphNumber}`);
+          console.log(`[AudioStorage]   - File path: ${existingAudio.filePath}`);
+          console.log(`[AudioStorage]   - File ID: ${existingAudio.fileId}`);
+          
+          return {
+            fileId: existingAudio.fileId,
+            audioURL: this.getAudioURL(existingAudio.fileId),
+            localAudioPath: existingAudio.filePath,
+            cached: true,
+            skipped: true,
+            expiresAt: existingAudio.expiresAt,
+            metadata: existingAudio.metadata || {}
+          };
+        }
+      }
       // Step 1: Generate audio from TTS backend (stored in TTS backend storage)
       console.log(`[AudioStorage] Step 1: Generating audio via TTS backend...`);
       console.log(`[AudioStorage] Bước 1: Đang tạo audio qua TTS backend...`);
@@ -507,6 +531,108 @@ export class AudioStorageService {
    */
   getAudioURL(fileId) {
     return this.ttsService.getAudioURL(fileId);
+  }
+
+  /**
+   * Check if audio already exists for a paragraph
+   * Kiểm tra xem audio đã tồn tại cho paragraph chưa
+   * 
+   * @param {string} novelId - Novel ID
+   * @param {number} chapterNumber - Chapter number
+   * @param {number} paragraphNumber - Paragraph number
+   * @param {string} speakerId - Speaker ID (optional)
+   * @returns {Promise<Object|null>} Existing audio info or null
+   */
+  async checkExistingAudio(novelId, chapterNumber, paragraphNumber, speakerId = '05') {
+    try {
+      // Check database cache
+      // Kiểm tra cache trong database
+      const { AudioCacheModel } = await import('../models/AudioCache.js');
+      const { ChapterModel } = await import('../models/Chapter.js');
+      
+      // Get chapter to get chapter ID
+      const chapter = await ChapterModel.getByNovelAndNumber(novelId, chapterNumber);
+      if (!chapter) {
+        return null;
+      }
+      
+      // Check database cache entry
+      const cacheEntry = await AudioCacheModel.getByChapterAndParagraphNumber(
+        novelId,
+        chapterNumber,
+        paragraphNumber,
+        speakerId
+      );
+      
+      if (!cacheEntry) {
+        // No database entry
+        return null;
+      }
+      
+      // Check expiration
+      const expiresAt = new Date(cacheEntry.expires_at);
+      const isValid = expiresAt > new Date();
+      
+      if (!isValid) {
+        // Expired
+        return null;
+      }
+      
+      // Check if physical file exists
+      // Kiểm tra xem file vật lý có tồn tại không
+      let filePath = null;
+      if (cacheEntry.local_audio_path) {
+        // Use path from database
+        filePath = cacheEntry.local_audio_path;
+      } else {
+        // Build expected path
+        filePath = this.getAudioFilePath(novelId, chapterNumber, cacheEntry.tts_file_id, paragraphNumber);
+      }
+      
+      // Check if file exists
+      let fileExists = false;
+      try {
+        const stats = await fs.stat(filePath);
+        fileExists = stats.isFile() && stats.size > 0;
+      } catch (e) {
+        // File doesn't exist
+        fileExists = false;
+      }
+      
+      if (!fileExists) {
+        // Database entry exists but file is missing
+        console.log(`[AudioStorage] [checkExistingAudio] ⚠️ Database entry exists but file missing: ${filePath}`);
+        return null;
+      }
+      
+      // Load metadata if exists
+      let metadata = null;
+      try {
+        const metadataPath = this.getMetadataFilePath(
+          novelId,
+          chapterNumber,
+          cacheEntry.tts_file_id,
+          paragraphNumber
+        );
+        const metadataContent = await fs.readFile(metadataPath, 'utf-8');
+        metadata = JSON.parse(metadataContent);
+      } catch (e) {
+        // Metadata doesn't exist, that's okay
+        metadata = null;
+      }
+      
+      return {
+        exists: true,
+        valid: true,
+        fileId: cacheEntry.tts_file_id,
+        filePath: filePath,
+        expiresAt: cacheEntry.expires_at,
+        metadata: metadata
+      };
+    } catch (error) {
+      console.error(`[AudioStorage] [checkExistingAudio] Error checking existing audio: ${error.message}`);
+      return null;
+    }
   }
 
   /**

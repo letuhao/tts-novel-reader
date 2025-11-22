@@ -17,7 +17,7 @@ const router = express.Router();
  */
 router.post('/generate/chapter', async (req, res, next) => {
   try {
-    const { novelId, chapterNumber, speakerId = '05', expiryHours = 365 * 24 } = req.body;
+    const { novelId, chapterNumber, speakerId = '05', expiryHours = 365 * 24, forceRegenerate = false, speedFactor = 1.0 } = req.body;
     
     if (!novelId || chapterNumber === undefined) {
       return res.status(400).json({
