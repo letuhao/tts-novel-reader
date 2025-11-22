@@ -15,6 +15,7 @@ import novelRoutes from './routes/novels.js';
 import audioRoutes from './routes/audio.js';
 import progressRoutes from './routes/progress.js';
 import workerRoutes from './routes/worker.js';
+import generationRoutes from './routes/generation.js';
 
 // Load environment variables
 dotenv.config();
@@ -65,6 +66,7 @@ app.use('/api/novels', novelRoutes);
 app.use('/api/audio', audioRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/worker', workerRoutes);
+app.use('/api/generation', generationRoutes);  // Generation progress routes
 
 // Error handling middleware
 app.use((err, req, res, next) => {

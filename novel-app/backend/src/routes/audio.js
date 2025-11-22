@@ -5,7 +5,8 @@
 import express from 'express';
 import { getAudioStorage } from '../services/audioStorage.js';
 import { NovelModel } from '../models/Novel.js';
-import { NovelParser } from '../services/novelParser.js';
+import { ChapterModel } from '../models/Chapter.js';
+import { ParagraphModel } from '../models/Paragraph.js';
 import { AudioCacheModel } from '../models/AudioCache.js';
 
 const router = express.Router();
@@ -120,7 +121,7 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
     const { novelId, chapterNumber } = req.params;
     const { speakerId = '05' } = req.query;
 
-    // Get novel and chapter
+    // Get novel
     const novel = await NovelModel.getById(novelId);
     if (!novel) {
       return res.status(404).json({
@@ -129,13 +130,18 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
       });
     }
 
-    const chapter = NovelParser.getChapter(novel, parseInt(chapterNumber));
+    // Get chapter from normalized database table
+    const chapter = await ChapterModel.getByNovelAndNumber(novelId, parseInt(chapterNumber));
     if (!chapter) {
       return res.status(404).json({
         success: false,
         error: 'Chapter not found'
       });
     }
+    
+    // Get paragraphs from normalized database table
+    const paragraphs = await ParagraphModel.getByChapter(chapter.id);
+    chapter.paragraphs = paragraphs;
 
     // Get all paragraph audio files for this chapter
     const paragraphAudios = await AudioCacheModel.getByChapterParagraphs(
