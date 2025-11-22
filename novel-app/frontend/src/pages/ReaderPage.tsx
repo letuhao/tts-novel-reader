@@ -151,6 +151,31 @@ function ReaderPage() {
     }
   }
 
+  const handleGenerateAllChapters = async () => {
+    if (!id) return
+
+    try {
+      startGeneration(id, 0) // Use 0 to indicate generating all chapters
+      
+      const result = await audioService.generateAllChapters(id, {
+        speakerId: AUDIO_CONFIG.DEFAULT_SPEAKER_ID,
+        speedFactor: AUDIO_CONFIG.DEFAULT_SPEED_FACTOR,
+      })
+
+      if (result.success) {
+        // Reload current chapter audio if available
+        if (chapterNumber) {
+          const audioFiles = await audioService.getChapterAudio(id, chapterNumber)
+          if (audioFiles) {
+            setAudioFiles(audioFiles)
+          }
+        }
+      }
+    } catch (error) {
+      logError('Failed to generate all chapters audio', error)
+    }
+  }
+
   const handleChapterChange = async (newChapterNumber: number) => {
     if (!id) return
     await loadChapter(id, newChapterNumber)
@@ -269,9 +294,9 @@ function ReaderPage() {
         </div>
       )}
 
-      {/* Generate Audio Button */}
+      {/* Generate Audio Buttons */}
       {paragraphs && paragraphs.length > 0 && (
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between gap-4">
           <button
             onClick={handleGenerateAudio}
             disabled={generationStatus === 'generating'}
@@ -286,6 +311,23 @@ function ReaderPage() {
               }
             </span>
           </button>
+          
+          {id && currentNovel && (
+            <button
+              onClick={handleGenerateAllChapters}
+              disabled={generationStatus === 'generating'}
+              className="btn-secondary flex items-center space-x-2"
+              type="button"
+            >
+              <Play className="w-5 h-5" />
+              <span>
+                {generationStatus === 'generating' 
+                  ? `Generating All Chapters...`
+                  : `Generate All Chapters (${currentNovel.totalChapters || 0})`
+                }
+              </span>
+            </button>
+          )}
         </div>
       )}
 

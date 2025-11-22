@@ -17,12 +17,13 @@ ModelType = Literal["vieneu-tts", "dia"]
 class TTSService:
     """Unified TTS service / Dịch vụ TTS thống nhất"""
     
-    def __init__(self, default_model: ModelType = "vieneu-tts"):
+    def __init__(self, default_model: ModelType = "dia", preload_default: bool = True):
         """
         Initialize TTS service / Khởi tạo dịch vụ TTS
         
         Args:
             default_model: Default model to use / Model mặc định sử dụng
+            preload_default: Whether to preload default model at startup / Có tải trước model mặc định khi khởi động không
         """
         self.default_model = default_model
         self.vieneu_tts = None
@@ -30,6 +31,22 @@ class TTSService:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Initializing TTS Service on device: {self.device}")
         print(f"Khởi tạo Dịch vụ TTS trên thiết bị: {self.device}")
+        print(f"Default model: {default_model}")
+        print(f"Model mặc định: {default_model}")
+        
+        # Preload default model at startup to avoid loading delay on first request
+        # Tải trước model mặc định khi khởi động để tránh độ trễ tải ở request đầu tiên
+        if preload_default:
+            print(f"Preloading default model: {default_model}...")
+            print(f"Đang tải trước model mặc định: {default_model}...")
+            if default_model == "dia":
+                self.get_dia_tts()  # Preload Dia model
+            elif default_model == "vieneu-tts":
+                # Note: VieNeu-TTS might not preload if it needs ref_audio
+                # Note: VieNeu-TTS có thể không tải trước nếu cần ref_audio
+                pass
+            print("✅ Default model preloaded")
+            print("✅ Model mặc định đã được tải trước")
     
     def get_vieneu_tts(self):
         """Get or load VieNeu-TTS model / Lấy hoặc tải model VieNeu-TTS"""
@@ -121,6 +138,8 @@ def get_service() -> TTSService:
     """Get global TTS service instance / Lấy instance dịch vụ TTS toàn cục"""
     global _service_instance
     if _service_instance is None:
-        _service_instance = TTSService()
+        # Default to "dia" model and preload it at startup
+        # Mặc định model "dia" và tải trước khi khởi động
+        _service_instance = TTSService(default_model="dia", preload_default=True)
     return _service_instance
 

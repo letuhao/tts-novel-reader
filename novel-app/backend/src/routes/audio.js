@@ -35,13 +35,18 @@ router.post('/generate/chapter', async (req, res, next) => {
       });
     }
     
-    const chapter = NovelParser.getChapter(novel, parseInt(chapterNumber));
+    // Get chapter from database (normalized table)
+    const chapter = await ChapterModel.getByNovelAndNumber(novelId, parseInt(chapterNumber));
     if (!chapter) {
       return res.status(404).json({
         success: false,
         error: 'Chapter not found'
       });
     }
+    
+    // Get paragraphs from database (normalized table)
+    const paragraphs = await ParagraphModel.getByChapter(chapter.id);
+    chapter.paragraphs = paragraphs;
     
     // Check if audio already exists
     let existingAudio = null;
@@ -106,6 +111,56 @@ router.post('/generate/chapter', async (req, res, next) => {
         expiresAt: audioMetadata.expiresAt,
         cached: false
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Generate audio for all chapters in a novel
+ * Tạo audio cho tất cả chapters trong novel
+ */
+router.post('/generate/novel', async (req, res, next) => {
+  try {
+    const { novelId, speakerId = '05', expiryHours = 365 * 24, forceRegenerate = false, speedFactor = 1.0 } = req.body;
+    
+    if (!novelId) {
+      return res.status(400).json({
+        success: false,
+        error: 'novelId is required'
+      });
+    }
+    
+    // Get novel to verify it exists
+    const novel = await NovelModel.getById(novelId);
+    if (!novel) {
+      return res.status(404).json({
+        success: false,
+        error: 'Novel not found'
+      });
+    }
+    
+    // Import worker service
+    const { getWorker } = await import('../services/worker.js');
+    const worker = getWorker({ 
+      speakerId, 
+      expiryHours,
+      speedFactor
+    });
+    
+    // Generate audio for all chapters using existing pipeline
+    // This loops through all chapters and calls generateChapterAudio for each
+    const result = await worker.generateAllChapters(novelId, {
+      speakerId,
+      expiryHours,
+      speedFactor,
+      forceRegenerate
+    });
+    
+    res.json({
+      success: true,
+      result: result
     });
   } catch (error) {
     next(error);

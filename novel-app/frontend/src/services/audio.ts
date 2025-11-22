@@ -48,3 +48,23 @@ export const generateChapter = async (
   return response.data
 }
 
+export const generateAllChapters = async (
+  novelId: string,
+  options: {
+    speakerId?: string
+    speedFactor?: number
+    forceRegenerate?: boolean
+  } = {}
+): Promise<WorkerGenerateResponse> => {
+  const response = await api.post<WorkerGenerateResponse>(
+    '/audio/generate/novel',
+    {
+      novelId,
+      speakerId: options.speakerId || '05',
+      speedFactor: options.speedFactor || 1.0,
+      forceRegenerate: options.forceRegenerate || false,
+    }
+  )
+  return response.data
+}
+

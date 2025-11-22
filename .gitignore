@@ -8,7 +8,6 @@ novel-app/storage/
 storage/
 
 # Model directories / Thư mục models
-models/
 
 # Novel source files / File novel nguồn
 novel-app/novels/
@@ -236,3 +235,13 @@ out/
 # PID files / File PID
 *.pid
 backend_pid.txt
+
+models/dia-finetuning-vnese/
+
+models/vieneu-tts/
+
+models/vieneu-tts-gguf/
+
+tts/Dia-Finetuning-Vietnamese
+
+tts/VieNeu-TTS

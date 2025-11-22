@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Import TTS backend
-from tts_backend.service import TTSService
+from tts_backend.service import get_service
 from tts_backend.api import router
 
 # Create FastAPI app
@@ -23,6 +23,23 @@ app = FastAPI(
     description="Unified TTS backend supporting VieNeu-TTS and Dia-Finetuning-Vietnamese",
     version="1.0.0"
 )
+
+# Preload TTS service and Dia model at startup to avoid loading delay on first request
+# Tải trước dịch vụ TTS và model Dia khi khởi động để tránh độ trễ tải ở request đầu tiên
+@app.on_event("startup")
+async def startup_event():
+    """Initialize TTS service and preload Dia model at startup / Khởi tạo dịch vụ TTS và tải trước model Dia khi khởi động"""
+    print("=" * 50)
+    print("Starting TTS Backend...")
+    print("Đang khởi động TTS Backend...")
+    print("=" * 50)
+    
+    # Initialize service and preload default model (Dia)
+    # Khởi tạo dịch vụ và tải trước model mặc định (Dia)
+    service = get_service()
+    print("✅ TTS Backend ready!")
+    print("✅ TTS Backend sẵn sàng!")
+    print("=" * 50)
 
 # CORS middleware
 app.add_middleware(
