@@ -30,6 +30,8 @@ export class TTSService {
       top_p = 0.95,
       cfg_scale = 3.0,
       speedFactor = 1.0,  // Normal speed to match preset (0.8-1.0, 1.0 = normal)
+      trimSilence = false,  // Default to false for worker (trim can cut off important dialogue)
+      normalize = true,  // Default to true for worker (normalize is useful)
       store = true,
       returnAudio = false
     } = options;
@@ -56,6 +58,8 @@ export class TTSService {
           top_p: top_p,
           cfg_scale: cfg_scale,
           speed_factor: speedFactor,  // Slower speech for better comprehension
+          trim_silence: trimSilence,  // Default false for worker (avoids cutting dialogue)
+          normalize: normalize,  // Default false for worker
           store: store,
           expiry_hours: expiryHours,
           return_audio: returnAudio

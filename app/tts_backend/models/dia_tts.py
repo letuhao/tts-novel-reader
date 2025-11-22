@@ -213,7 +213,7 @@ class DiaTTSWrapper:
         use_cfg_filter: bool = True,
         cfg_filter_top_k: int = 35,
         speed_factor: float = 1.0,  # Normal speed (0.8-1.0, 1.0 = normal) / Tốc độ bình thường
-        trim_silence: bool = True,  # Trim silence from beginning and end / Cắt im lặng ở đầu và cuối
+        trim_silence: bool = False,  # Trim silence from beginning and end / Cắt im lặng ở đầu và cuối
         silence_threshold: float = 0.005,  # Threshold for silence detection (lowered for better speech detection) / Ngưỡng phát hiện im lặng (giảm để phát hiện giọng nói tốt hơn)
         silence_margin: int = 2000,  # Margin in samples to keep (increased to preserve more) / Margin tính bằng mẫu để giữ lại (tăng để giữ nhiều hơn)
         normalize: bool = True,  # Normalize audio levels / Chuẩn hóa mức audio

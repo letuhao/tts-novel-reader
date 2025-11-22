@@ -162,6 +162,8 @@ export class AudioStorageService {
       ttsExpiryHours = 2,  // TTS backend cache: 2 hours (short-term temporary storage)
       model = 'dia',
       speedFactor = 1.0,  // Normal speed (matches preset quality)
+      trimSilence = false,  // Default false (trim can cut off important dialogue)
+      normalize = true,  // Default true (normalize is useful)
       deleteFromTTSAfterDownload = true,  // Clean up TTS cache after successful download
       chapterTitle = null,  // Chapter title for organization (optional)
       novelTitle = null,    // Novel title for organization (optional)
@@ -213,6 +215,8 @@ export class AudioStorageService {
         model: model,
         expiryHours: ttsExpiryHours,  // Short-term cache in TTS backend
         speedFactor: speedFactor,  // Pass speed factor for slower narration
+        trimSilence: trimSilence,  // Default false (trim can cut off important dialogue)
+        normalize: normalize,  // Default false
         store: true,
         returnAudio: false
       });

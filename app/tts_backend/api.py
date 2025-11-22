@@ -28,6 +28,8 @@ class TTSSynthesizeRequest(BaseModel):
     cfg_scale: Optional[float] = 3.0
     max_tokens: Optional[int] = None
     speed_factor: Optional[float] = 1.0  # Speech speed (0.8-1.0, 1.0 = normal/normal) / Tốc độ giọng nói
+    trim_silence: Optional[bool] = True  # Trim silence from beginning and end (default: True) / Cắt im lặng ở đầu và cuối (mặc định: True)
+    normalize: Optional[bool] = False  # Normalize audio volume (default: False) / Chuẩn hóa âm lượng audio (mặc định: False)
     # Storage options / Tùy chọn lưu trữ
     store: Optional[bool] = True  # Store audio file / Lưu file audio
     expiry_hours: Optional[int] = None  # Expiration hours (None = use default)
@@ -119,7 +121,9 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
                 "top_p": request.top_p,
                 "cfg_scale": request.cfg_scale,
                 "max_tokens": request.max_tokens,
-                "speed_factor": request.speed_factor or 1.0  # Default normal speed (matches preset)
+                "speed_factor": request.speed_factor or 1.0,  # Default normal speed (matches preset)
+                "trim_silence": request.trim_silence if request.trim_silence is not None else True,  # Default to True for API, but worker will pass False
+                "normalize": request.normalize if request.normalize is not None else False  # Default to False
             })
         
         # Generate audio / Tạo audio
