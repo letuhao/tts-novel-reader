@@ -139,7 +139,36 @@ export class NovelParser {
       }
       
       // Chapter detection - Multiple patterns
-      const chapterMatch = line.match(/^Chương\s*(\d+)[:：]?\s*(.*)$/i);
+      // Pattern 1: "Chương 1", "Chương 2:", etc.
+      // Pattern 2: "Thứ 0001 chương", "Thứ 1 chương", etc. (Vietnamese format)
+      // Pattern 3: "Chapter 1", etc.
+      let chapterMatch = line.match(/^Chương\s*(\d+)[:：]?\s*(.*)$/i);
+      let chapterNumber = null;
+      let chapterTitle = null;
+      
+      if (!chapterMatch) {
+        // Try "Thứ XXXX chương" format
+        const thuMatch = line.match(/^Thứ\s+(\d+)\s+chương\s*[:：]?\s*(.*)$/i);
+        if (thuMatch) {
+          chapterNumber = parseInt(thuMatch[1]);
+          chapterTitle = thuMatch[2].trim() || `Chương ${chapterNumber}`;
+          chapterMatch = thuMatch; // Use this match
+        }
+      } else {
+        chapterNumber = parseInt(chapterMatch[1]);
+        chapterTitle = chapterMatch[2]?.trim() || `Chương ${chapterNumber}`;
+      }
+      
+      // Also try English "Chapter X" format
+      if (!chapterMatch) {
+        const engMatch = line.match(/^Chapter\s+(\d+)[:：]?\s*(.*)$/i);
+        if (engMatch) {
+          chapterNumber = parseInt(engMatch[1]);
+          chapterTitle = engMatch[2]?.trim() || `Chapter ${chapterNumber}`;
+          chapterMatch = engMatch;
+        }
+      }
+      
       if (chapterMatch) {
         // Save previous chapter
         if (currentChapter) {
@@ -155,8 +184,12 @@ export class NovelParser {
         }
         
         // Start new chapter
-        chapterNumber = parseInt(chapterMatch[1]);
-        const chapterTitle = chapterMatch[2] || `Chương ${chapterNumber}`;
+        if (!chapterNumber) {
+          chapterNumber = parseInt(chapterMatch[1]);
+        }
+        if (!chapterTitle) {
+          chapterTitle = chapterMatch[2]?.trim() || `Chương ${chapterNumber}`;
+        }
         
         currentChapter = {
           id: uuidv4(),
