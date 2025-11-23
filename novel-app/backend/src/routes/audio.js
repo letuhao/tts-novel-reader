@@ -218,6 +218,41 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
       });
     }
 
+    // CRITICAL: Deduplicate by paragraph_number
+    // Keep only the most recent entry for each paragraph (by created_at DESC)
+    // Loại bỏ trùng lặp theo paragraph_number - chỉ giữ entry mới nhất cho mỗi paragraph
+    const paragraphMap = new Map();
+    paragraphAudios.forEach(cache => {
+      const paraNum = cache.paragraph_number;
+      
+      // Skip entries with null/undefined paragraph_number
+      if (paraNum === null || paraNum === undefined) {
+        return;
+      }
+      
+      // If we haven't seen this paragraph, or this entry is newer, keep it
+      if (!paragraphMap.has(paraNum)) {
+        paragraphMap.set(paraNum, cache);
+      } else {
+        const existing = paragraphMap.get(paraNum);
+        const existingDate = new Date(existing.created_at || 0);
+        const currentDate = new Date(cache.created_at || 0);
+        
+        // Keep the most recent one
+        if (currentDate > existingDate) {
+          paragraphMap.set(paraNum, cache);
+        }
+      }
+    });
+    
+    // Convert map back to array
+    const uniqueParagraphAudios = Array.from(paragraphMap.values());
+    
+    if (paragraphAudios.length !== uniqueParagraphAudios.length) {
+      console.log(`[Audio Route] ⚠️ Deduplicated audio files: ${paragraphAudios.length} -> ${uniqueParagraphAudios.length} (removed ${paragraphAudios.length - uniqueParagraphAudios.length} duplicates)`);
+    }
+    console.log(`[Audio Route] Chapter ${chapterNumber}: ${chapter.paragraphs.length} paragraphs, returning ${uniqueParagraphAudios.length} unique audio files`);
+
     // Get TTS service for base URL
     const audioStorage = getAudioStorage();
 
@@ -234,7 +269,7 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
     const chapterDirName = `chapter_${String(chapterNumber).padStart(3, '0')}`;  // Use only chapter number, no title
 
     // Return list of paragraph audio files (for seamless playback in frontend)
-    const audioFiles = paragraphAudios.map(cache => {
+    const audioFiles = uniqueParagraphAudios.map(cache => {
       // Use local audio file URL if available, otherwise fall back to TTS backend URL
       // Sử dụng URL file audio local nếu có, nếu không thì dùng URL TTS backend
       let audioURL = null;
@@ -273,6 +308,13 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
       return a.paragraphNumber - b.paragraphNumber;
     });
 
+    // Final validation: ensure no duplicate paragraph_numbers in response
+    const paragraphNumbers = audioFiles.map(f => f.paragraphNumber).filter(p => p !== null && p !== undefined);
+    const uniqueParagraphNumbers = new Set(paragraphNumbers);
+    if (paragraphNumbers.length !== uniqueParagraphNumbers.size) {
+      console.error(`[Audio Route] ❌ ERROR: Still have duplicates after deduplication! ${paragraphNumbers.length} paragraph numbers, ${uniqueParagraphNumbers.size} unique`);
+    }
+
     res.json({
       success: true,
       chapterNumber: parseInt(chapterNumber),
@@ -280,7 +322,7 @@ router.get('/:novelId/:chapterNumber', async (req, res, next) => {
       totalParagraphs: chapter.paragraphs.length,
       audioFileCount: audioFiles.length,
       audioFiles: audioFiles,
-      message: `Found ${audioFiles.length} audio file(s) for ${chapter.paragraphs.length} paragraph(s)`
+      message: `Found ${audioFiles.length} unique audio file(s) for ${chapter.paragraphs.length} paragraph(s)`
     });
 
   } catch (error) {

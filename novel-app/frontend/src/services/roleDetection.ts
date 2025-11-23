@@ -88,6 +88,7 @@ export const detectChapterRoles = async (
   options?: {
     updateProgress?: boolean
     saveMetadata?: boolean
+    forceRegenerateRoles?: boolean
   }
 ): Promise<RoleDetectionStartResult> => {
   const response = await api.post<ApiResponse<RoleDetectionStartResult>>(
@@ -97,6 +98,7 @@ export const detectChapterRoles = async (
       chapterNumber,
       updateProgress: options?.updateProgress ?? true,
       saveMetadata: options?.saveMetadata ?? true,
+      forceRegenerateRoles: options?.forceRegenerateRoles ?? false,
     },
     {
       timeout: 10000, // 10 seconds - just to start the job
@@ -118,6 +120,7 @@ export const detectNovelRoles = async (
   novelId: string,
   options?: {
     overwriteComplete?: boolean
+    forceRegenerateRoles?: boolean
     updateProgress?: boolean
     saveMetadata?: boolean
   }
@@ -127,6 +130,7 @@ export const detectNovelRoles = async (
     {
       novelId,
       overwriteComplete: options?.overwriteComplete ?? false,
+      forceRegenerateRoles: options?.forceRegenerateRoles ?? false,
       updateProgress: options?.updateProgress ?? true,
       saveMetadata: options?.saveMetadata ?? true,
     }

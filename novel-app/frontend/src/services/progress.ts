@@ -22,7 +22,7 @@ export const save = async (progressData: {
   position: number
   completed?: boolean
 }): Promise<Progress> => {
-  const response = await api.post<ProgressResponse>('/progress/save', {
+  const response = await api.post<ProgressResponse>('/progress', {
     novelId: progressData.novelId,
     chapterNumber: progressData.chapterNumber,
     paragraphNumber: progressData.paragraphNumber,

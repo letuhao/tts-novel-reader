@@ -173,7 +173,8 @@ router.put('/voices', (req, res, next) => {
  * Body:
  * {
  *   novelId: string,
- *   overwriteComplete?: boolean,  // Default: false (skip complete chapters)
+ *   overwriteComplete?: boolean,   // Default: false (skip complete chapters)
+ *   forceRegenerateRoles?: boolean // Default: false (if true, overwrite existing roles)
  *   updateProgress?: boolean,      // Default: true
  *   saveMetadata?: boolean         // Default: true
  * }
@@ -183,6 +184,7 @@ router.post('/detect-novel', async (req, res, next) => {
     const { 
       novelId, 
       overwriteComplete = false,
+      forceRegenerateRoles = false,  // If true, overwrite existing roles in all paragraphs
       updateProgress = true, 
       saveMetadata = true 
     } = req.body;
@@ -223,6 +225,7 @@ router.post('/detect-novel', async (req, res, next) => {
     // Run detection in background (don't await)
     worker.detectNovelRoles(novelId, {
       overwriteComplete: overwriteComplete,
+      forceRegenerateRoles: forceRegenerateRoles,
       updateProgress: updateProgress,
       saveMetadata: saveMetadata
     }).catch(error => {

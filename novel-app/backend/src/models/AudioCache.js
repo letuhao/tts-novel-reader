@@ -25,27 +25,75 @@ export class AudioCacheModel {
    * Get all paragraph audio for a chapter
    * Lấy tất cả audio paragraph cho một chapter
    * 
+   * Returns only ONE entry per paragraph_number (most recent by created_at)
+   * Trả về chỉ MỘT entry cho mỗi paragraph_number (mới nhất theo created_at)
+   * 
    * @param {string} novelId - Novel ID
    * @param {string} chapterId - Chapter ID
    * @param {string} speakerId - Speaker ID (optional)
-   * @returns {Promise<Array>} Array of paragraph audio cache entries, sorted by paragraph number
+   * @returns {Promise<Array>} Array of paragraph audio cache entries, sorted by paragraph number, with duplicates removed
    */
   static async getByChapterParagraphs(novelId, chapterId, speakerId = null) {
     const db = Database.getInstance();
-    let query = `
-      SELECT * FROM audio_cache 
-      WHERE novel_id = ? AND chapter_id = ? AND paragraph_id IS NOT NULL
-    `;
-    const params = [novelId, chapterId];
     
-    if (speakerId) {
-      query += ` AND speaker_id = ?`;
-      params.push(speakerId);
+    try {
+      // Use a subquery with ROW_NUMBER() to get only the most recent entry per paragraph_number
+      // Sử dụng subquery với ROW_NUMBER() để chỉ lấy entry mới nhất cho mỗi paragraph_number
+      // This ensures DISTINCT at database level (SQLite 3.25.0+)
+      // Điều này đảm bảo DISTINCT ở cấp database (SQLite 3.25.0+)
+      let query = `
+        SELECT * FROM (
+          SELECT *,
+            ROW_NUMBER() OVER (
+              PARTITION BY paragraph_number 
+              ORDER BY created_at DESC
+            ) as rn
+          FROM audio_cache 
+          WHERE novel_id = ? AND chapter_id = ? AND paragraph_id IS NOT NULL AND paragraph_number IS NOT NULL
+      `;
+      const params = [novelId, chapterId];
+      
+      if (speakerId) {
+        query += ` AND speaker_id = ?`;
+        params.push(speakerId);
+      }
+      
+      query += `
+        ) ranked
+        WHERE rn = 1
+        ORDER BY paragraph_number ASC
+      `;
+      
+      const results = db.prepare(query).all(...params);
+      
+      // Remove the rn column from results (it's just for filtering)
+      // Loại bỏ cột rn khỏi kết quả (nó chỉ để lọc)
+      return results.map(row => {
+        const { rn, ...rest } = row;
+        return rest;
+      });
+    } catch (error) {
+      // Fallback: If window functions not supported (SQLite < 3.25.0), use simple query
+      // Dự phòng: Nếu window functions không được hỗ trợ (SQLite < 3.25.0), dùng query đơn giản
+      console.warn(`[AudioCache] Window functions not supported, using fallback query: ${error.message}`);
+      
+      let query = `
+        SELECT * FROM audio_cache 
+        WHERE novel_id = ? AND chapter_id = ? AND paragraph_id IS NOT NULL AND paragraph_number IS NOT NULL
+      `;
+      const params = [novelId, chapterId];
+      
+      if (speakerId) {
+        query += ` AND speaker_id = ?`;
+        params.push(speakerId);
+      }
+      
+      query += ` ORDER BY paragraph_number ASC, created_at DESC`;
+      
+      // Return results - JavaScript deduplication will handle duplicates
+      // Trả về kết quả - JavaScript deduplication sẽ xử lý trùng lặp
+      return db.prepare(query).all(...params);
     }
-    
-    query += ` ORDER BY paragraph_number ASC`;
-    
-    return db.prepare(query).all(...params);
   }
 
   /**

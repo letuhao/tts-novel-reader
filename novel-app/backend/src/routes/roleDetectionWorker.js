@@ -16,13 +16,14 @@ const router = express.Router();
  * {
  *   novelId: string,
  *   chapterNumber: number,
- *   updateProgress?: boolean,  // Default: true
- *   saveMetadata?: boolean      // Default: true
+ *   updateProgress?: boolean,      // Default: true
+ *   saveMetadata?: boolean,        // Default: true
+ *   forceRegenerateRoles?: boolean // Default: false (if true, overwrite existing roles)
  * }
  */
 router.post('/detect-chapter', async (req, res, next) => {
   try {
-    const { novelId, chapterNumber, updateProgress = true, saveMetadata = true } = req.body;
+    const { novelId, chapterNumber, updateProgress = true, saveMetadata = true, forceRegenerateRoles = false } = req.body;
 
     // Validate input
     if (!novelId || chapterNumber === undefined) {
@@ -69,7 +70,8 @@ router.post('/detect-chapter', async (req, res, next) => {
     // Start detection in background (don't await)
     worker.detectChapterRoles(novelId, chapterNumber, {
       updateProgress: updateProgress,
-      saveMetadata: saveMetadata
+      saveMetadata: saveMetadata,
+      forceRegenerateRoles: forceRegenerateRoles
     }).catch(error => {
       console.error(`[RoleDetectionWorker] Background error: ${error.message}`);
       // Update progress to failed

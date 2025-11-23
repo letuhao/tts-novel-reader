@@ -9,6 +9,8 @@ interface ReaderHeaderProps {
   onDetectNovelRoles?: () => void
   roleDetectionLoading?: boolean
   roleDetectionLoadingText?: string
+  forceRegenerateRoles?: boolean
+  onForceRegenerateRolesChange?: (force: boolean) => void
 }
 
 function ReaderHeader({ 
@@ -18,7 +20,9 @@ function ReaderHeader({
   onDetectChapterRoles,
   onDetectNovelRoles,
   roleDetectionLoading = false,
-  roleDetectionLoadingText
+  roleDetectionLoadingText,
+  forceRegenerateRoles = false,
+  onForceRegenerateRolesChange
 }: ReaderHeaderProps) {
   const handlePrevChapter = () => {
     if (currentChapterNumber > 1 && onChapterChange) {
@@ -83,6 +87,18 @@ function ReaderHeader({
       {/* Role Detection Buttons */}
       {(onDetectChapterRoles || onDetectNovelRoles) && (
         <div className="flex items-center space-x-2 flex-wrap gap-2">
+          {/* Force Regenerate Checkbox */}
+          <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={forceRegenerateRoles}
+              onChange={(e) => onForceRegenerateRolesChange?.(e.target.checked)}
+              disabled={roleDetectionLoading}
+              className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 disabled:opacity-50"
+            />
+            <span>Force Regenerate (Overwrite existing roles)</span>
+          </label>
+          
           {onDetectChapterRoles && (
             <button
               onClick={onDetectChapterRoles}

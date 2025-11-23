@@ -27,12 +27,14 @@ export class RoleDetectionService {
    * @param {Object} options - Detection options
    * @param {string} options.chapterContext - Full chapter text for context
    * @param {boolean} options.returnVoiceIds - If true, also return voice IDs
+   * @param {number} options.maxBatchSize - Maximum paragraphs per batch (default: 100)
    * @returns {Promise<Object>} Result with role_map and optionally voice_map
    */
   async detectRoles(paragraphs, options = {}) {
     const {
       chapterContext = '',
-      returnVoiceIds = true
+      returnVoiceIds = true,
+      maxBatchSize = 100  // Process max 100 paragraphs per batch to avoid truncation
     } = options;
 
     if (!paragraphs || paragraphs.length === 0) {
@@ -42,8 +44,69 @@ export class RoleDetectionService {
       };
     }
 
-    // Step 1: Detect roles
-    const roleMap = await this._detectRolesBatch(paragraphs, chapterContext);
+    // Step 1: Detect roles (with batching for large chapters)
+    let roleMap = {};
+    
+    // If chapter is too large, split into batches
+    // Nếu chapter quá lớn, chia thành các batch
+    if (paragraphs.length > maxBatchSize) {
+      console.log(`[RoleDetectionService] Large chapter detected (${paragraphs.length} paragraphs). Splitting into batches of ${maxBatchSize}...`);
+      console.log(`[RoleDetectionService] Phát hiện chapter lớn (${paragraphs.length} paragraphs). Chia thành các batch ${maxBatchSize} paragraphs...`);
+      
+      const numBatches = Math.ceil(paragraphs.length / maxBatchSize);
+      
+      for (let batchNum = 0; batchNum < numBatches; batchNum++) {
+        const startIdx = batchNum * maxBatchSize;
+        const endIdx = Math.min(startIdx + maxBatchSize, paragraphs.length);
+        const batchParagraphs = paragraphs.slice(startIdx, endIdx);
+        
+        console.log(`[RoleDetectionService] Processing batch ${batchNum + 1}/${numBatches} (paragraphs ${startIdx + 1}-${endIdx}, indices ${startIdx}-${endIdx - 1})...`);
+        console.log(`[RoleDetectionService] Xử lý batch ${batchNum + 1}/${numBatches} (paragraphs ${startIdx + 1}-${endIdx}, indices ${startIdx}-${endIdx - 1})...`);
+        
+        try {
+          // Use full chapter context for all batches (helps with consistency)
+          // Sử dụng toàn bộ context chapter cho tất cả batches (giúp nhất quán)
+          const batchRoleMap = await this._detectRolesBatch(batchParagraphs, chapterContext);
+          
+          // Map batch indices (0-based within batch) to global indices (0-based in full paragraphs array)
+          // Map các chỉ số batch (0-based trong batch) sang chỉ số global (0-based trong mảng paragraphs đầy đủ)
+          for (const [batchIdxStr, role] of Object.entries(batchRoleMap)) {
+            const batchIdx = parseInt(batchIdxStr);
+            const globalIdx = startIdx + batchIdx;
+            roleMap[globalIdx] = role;
+          }
+          
+          const detectedCount = Object.keys(batchRoleMap).length;
+          console.log(`[RoleDetectionService] ✅ Batch ${batchNum + 1}/${numBatches} completed (${detectedCount}/${batchParagraphs.length} roles detected)`);
+          
+          // Small delay between batches to avoid overwhelming Ollama
+          // Đợi một chút giữa các batch để tránh quá tải Ollama
+          if (batchNum < numBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          console.error(`[RoleDetectionService] ❌ Batch ${batchNum + 1}/${numBatches} failed: ${error.message}`);
+          // Fill missing batch with narrator (fallback)
+          // Điền batch thiếu bằng narrator (fallback)
+          for (let i = startIdx; i < endIdx; i++) {
+            if (!(i in roleMap)) {
+              roleMap[i] = 'narrator';
+            }
+          }
+        }
+      }
+      
+      const totalDetected = Object.keys(roleMap).length;
+      console.log(`[RoleDetectionService] ✅ All batches completed. Total roles detected: ${totalDetected}/${paragraphs.length}`);
+      if (totalDetected < paragraphs.length) {
+        console.warn(`[RoleDetectionService] ⚠️ Missing ${paragraphs.length - totalDetected} paragraph roles (filled with narrator)`);
+      }
+    } else {
+      // Small chapter - process all at once
+      // Chapter nhỏ - xử lý tất cả cùng lúc
+      console.log(`[RoleDetectionService] Processing ${paragraphs.length} paragraphs in single batch...`);
+      roleMap = await this._detectRolesBatch(paragraphs, chapterContext);
+    }
 
     // Step 2: Map to voice IDs if requested
     let voiceMap = {};
@@ -75,19 +138,57 @@ export class RoleDetectionService {
       // Calculate maxTokens based on number of paragraphs
       // Each paragraph output is ~30-40 tokens (e.g., "1": "narrator",) including quotes and structure
       // Plus prompt overhead, safety margin
-      // Estimate: ~40 tokens per paragraph + 1000 buffer for JSON structure and prompt
-      const estimatedResponseTokens = paragraphs.length * 40 + 1000; // More conservative estimate
-      const maxTokens = Math.min(32000, Math.max(4000, estimatedResponseTokens)); // Min 4000, Max 32000 (allow for very large chapters)
+      // Estimate: ~50 tokens per paragraph + 2000 buffer for JSON structure and prompt
+      // Increased buffer to prevent truncation
+      const estimatedResponseTokens = paragraphs.length * 50 + 2000; // More conservative estimate with larger buffer
+      const maxTokens = Math.min(8192, Math.max(4000, estimatedResponseTokens)); // Min 4000, Max 8192 (Ollama's typical limit)
       
-      const response = await this.ollama.generateJSON(prompt, {
-        model: this.model,
-        temperature: 0.1, // Low temperature for consistent classification
-        maxTokens: maxTokens
-      });
+      // Add retry logic for incomplete JSON responses
+      const maxRetries = 3;
+      let lastError = null;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const response = await this.ollama.generateJSON(prompt, {
+            model: this.model,
+            temperature: 0.1, // Low temperature for consistent classification
+            maxTokens: attempt === maxRetries ? Math.min(8192, maxTokens * 1.5) : maxTokens // Increase tokens on last retry
+          });
 
-      // Parse response
-      const roleMap = this._parseRoleResponse(response, paragraphs.length);
-      return roleMap;
+          // Parse response
+          const roleMap = this._parseRoleResponse(response, paragraphs.length);
+          
+          // Verify we got responses for all paragraphs
+          const missingCount = paragraphs.length - Object.keys(roleMap).length;
+          if (missingCount > 0 && attempt < maxRetries) {
+            console.warn(`[RoleDetectionService] Missing ${missingCount} paragraph responses, retrying... (attempt ${attempt}/${maxRetries})`);
+            lastError = new Error(`Incomplete response: ${missingCount} paragraphs missing`);
+            continue; // Retry
+          }
+          
+          return roleMap;
+        } catch (error) {
+          lastError = error;
+          console.warn(`[RoleDetectionService] Attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+          
+          // Check if it's a JSON parse error (truncated response)
+          if (error.message.includes('JSON') || error.message.includes('parse')) {
+            if (attempt < maxRetries) {
+              // Wait a bit before retrying
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+              continue;
+            }
+          }
+          
+          // If not a parse error or last attempt, throw immediately
+          if (attempt === maxRetries || !error.message.includes('JSON')) {
+            throw error;
+          }
+        }
+      }
+      
+      // If we exhausted retries, throw last error
+      throw lastError;
     } catch (error) {
       console.error('[RoleDetectionService] Error detecting roles:', error.message);
       

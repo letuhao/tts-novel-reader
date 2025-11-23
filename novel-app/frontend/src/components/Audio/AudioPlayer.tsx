@@ -1,14 +1,6 @@
 /**
- * AudioPlayer Component
- * Component AudioPlayer - Trình phát audio
- * 
- * Features:
- * - Seamless playback across multiple paragraph audio files
- * - Play/pause controls
- * - Progress tracking
- * - Volume and speed controls
- * - Auto-advance to next paragraph
- * - Shows current paragraph being played
+ * AudioPlayer Component - Single Source of Truth Architecture
+ * Uses audioQueue as the only source of truth for audio progression
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, RotateCcw, X } from 'lucide-react'
@@ -16,6 +8,7 @@ import { Howl } from 'howler'
 import { useAudioStore } from '../../store/useAudioStore'
 import { useReaderStore } from '../../store/useReaderStore'
 import { useProgressStore } from '../../store/useProgressStore'
+import { audioQueue } from '../../services/audioQueue'
 import { logError } from '../../utils/logger'
 import { AUDIO_CONFIG } from '../../utils/constants'
 
@@ -26,11 +19,8 @@ function AudioPlayer() {
     duration,
     playbackRate,
     volume,
-    audioFiles,
-    currentAudioIndex,
+    audioFiles, // Only used to initialize queue
     isLoading,
-    setAudioFiles,
-    setCurrentAudioIndex,
     play: playAction,
     pause: pauseAction,
     setPlaybackRate,
@@ -44,94 +34,171 @@ function AudioPlayer() {
   const { novelId, chapterNumber, currentParagraphNumber, paragraphs, setCurrentParagraph } = useReaderStore()
   const { saveProgress } = useProgressStore()
   
+  // Local state
   const [currentHowl, setCurrentHowl] = useState<Howl | null>(null)
   const [showPlayer, setShowPlayer] = useState(false)
+  
+  // Queue state (read from queue, never stored locally)
+  const [queueCurrentIndex, setQueueCurrentIndex] = useState<number>(-1)
+  const [queueCurrentFile, setQueueCurrentFile] = useState<ReturnType<typeof audioQueue.getCurrentFile>>(null)
+  const [queueTotalFiles, setQueueTotalFiles] = useState<number>(0)
+  
+  // Refs
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isInitializedRef = useRef(false)
 
-  // Initialize audio files when chapter changes
+  // Initialize queue when audioFiles change from store
   useEffect(() => {
-    // Ensure audioFiles is always an array
-    if (!novelId || !chapterNumber || !Array.isArray(audioFiles) || audioFiles.length === 0) {
-      setShowPlayer(false)
-      
-      // Clean up existing audio when hiding player
-      if (currentHowl) {
-        if (currentHowl.playing()) {
-          currentHowl.pause()
-        }
-        currentHowl.unload()
-        setCurrentHowl(null)
-      }
-      
-      // Clear interval
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current)
-        progressIntervalRef.current = null
-      }
-      
-      return
-    }
-
-    setShowPlayer(true)
-    isInitializedRef.current = false
-
-    // Clean up existing audio
-    if (currentHowl) {
-      if (currentHowl.playing()) {
-        currentHowl.pause()
-      }
-      currentHowl.unload()
-      setCurrentHowl(null)
-    }
-
-    // Clear interval
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current)
-      progressIntervalRef.current = null
-    }
-
-    // Find starting paragraph index
-    // Ensure audioFiles is an array before using findIndex
-    if (!Array.isArray(audioFiles)) {
-      console.warn('[AudioPlayer] audioFiles is not an array:', audioFiles)
-      return
-    }
+    console.log('[AudioPlayer] Initialization effect triggered:', {
+      novelId,
+      chapterNumber,
+      audioFilesLength: audioFiles?.length || 0,
+      currentParagraphNumber
+    })
     
+    if (!novelId || !chapterNumber) {
+      console.log('[AudioPlayer] Missing novelId or chapterNumber, resetting queue')
+      audioQueue.reset()
+      setShowPlayer(false)
+      return
+    }
+
+    if (!Array.isArray(audioFiles) || audioFiles.length === 0) {
+      console.log('[AudioPlayer] No audio files, resetting queue')
+      audioQueue.reset()
+      setShowPlayer(false)
+      return
+    }
+
+    // Initialize queue with audio files
     const startIndex = currentParagraphNumber 
       ? audioFiles.findIndex(f => f.paragraphNumber === currentParagraphNumber) 
       : 0
 
-    if (startIndex >= 0) {
-      setCurrentAudioIndex(startIndex)
-    }
+    console.log('[AudioPlayer] ✅ Initializing queue with', audioFiles.length, 'files, starting at index', startIndex >= 0 ? startIndex : 0)
+    
+    // Initialize queue - this will emit a 'changed' event
+    audioQueue.initialize(audioFiles, startIndex >= 0 ? startIndex : 0)
+    
+    // Immediately sync state from queue (don't wait for subscription event)
+    setQueueCurrentIndex(audioQueue.getCurrentIndex())
+    setQueueCurrentFile(audioQueue.getCurrentFile())
+    setQueueTotalFiles(audioQueue.getTotalCount())
+    
+    console.log('[AudioPlayer] ✅ Queue initialized, state synced:', {
+      index: audioQueue.getCurrentIndex(),
+      totalFiles: audioQueue.getTotalCount(),
+      currentFile: audioQueue.getCurrentFile()?.paragraphNumber
+    })
+    
+    setShowPlayer(true)
+    isInitializedRef.current = false
 
-    // Cleanup on unmount
+    // Cleanup on unmount or chapter change
     return () => {
       if (currentHowl) {
-        if (currentHowl.playing()) {
-          currentHowl.pause()
+        try {
+          currentHowl.off()
+          if (currentHowl.playing()) {
+            currentHowl.pause()
+          }
+          currentHowl.unload()
+        } catch (error) {
+          console.warn('[AudioPlayer] Error cleaning up on unmount:', error)
         }
-        currentHowl.unload()
         setCurrentHowl(null)
       }
-      
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
         progressIntervalRef.current = null
       }
     }
-  }, [novelId, chapterNumber, Array.isArray(audioFiles) ? audioFiles.length : 0, currentParagraphNumber, setCurrentAudioIndex])
+  }, [novelId, chapterNumber, Array.isArray(audioFiles) ? audioFiles.length : 0, currentParagraphNumber])
 
-  // Load and play current audio file
+  // Subscribe to queue events - SINGLE SOURCE OF TRUTH
   useEffect(() => {
-    // Ensure audioFiles is an array
-    if (!showPlayer || !Array.isArray(audioFiles) || audioFiles.length === 0 || currentAudioIndex < 0 || currentAudioIndex >= audioFiles.length) {
+    const unsubscribe = audioQueue.subscribe((event) => {
+      console.log('[AudioPlayer] Queue event:', event.type, {
+        currentIndex: event.data.currentIndex,
+        totalFiles: event.data.totalFiles,
+        paragraphNumber: event.data.currentFile?.paragraphNumber,
+      })
+
+      // Update local state from queue (read-only, never modify queue state here)
+      setQueueCurrentIndex(event.data.currentIndex)
+      setQueueCurrentFile(event.data.currentFile)
+      setQueueTotalFiles(event.data.totalFiles)
+
+      // Update reader store paragraph
+      if (event.data.currentFile) {
+        setCurrentParagraph(event.data.currentFile.paragraphNumber)
+      }
+    })
+
+    // Initialize state from queue
+    setQueueCurrentIndex(audioQueue.getCurrentIndex())
+    setQueueCurrentFile(audioQueue.getCurrentFile())
+    setQueueTotalFiles(audioQueue.getTotalCount())
+
+    return unsubscribe
+  }, [setCurrentParagraph])
+
+  // Load and play audio when queue index changes
+  useEffect(() => {
+    // Validation
+    console.log('[AudioPlayer] Effect triggered:', {
+      showPlayer,
+      queueCurrentIndex,
+      queueTotalFiles,
+      queueCurrentFile: queueCurrentFile?.paragraphNumber,
+      audioFilesCount: audioFiles?.length || 0
+    })
+    
+    // Debug: Log queue state
+    const queueDebug = audioQueue.getDebugInfo()
+    console.log('[AudioPlayer] Queue debug info:', queueDebug)
+    
+    if (!showPlayer) {
+      console.log('[AudioPlayer] Player not shown, skipping')
+      return
+    }
+    
+    if (queueTotalFiles === 0) {
+      console.log('[AudioPlayer] No files in queue, skipping')
+      return
+    }
+    
+    // Get current file directly from queue (single source of truth)
+    const currentFile = audioQueue.getCurrentFile()
+    if (!currentFile) {
+      console.warn('[AudioPlayer] No current file from queue', {
+        queueCurrentIndex,
+        queueTotalFiles,
+        queueDebug
+      })
+      return
+    }
+    
+    // Ensure we use the queue's current index (might be different from state due to async)
+    const actualQueueIndex = audioQueue.getCurrentIndex()
+    if (actualQueueIndex < 0) {
+      console.warn('[AudioPlayer] Queue index is invalid:', actualQueueIndex)
+      // Try to reset queue index to 0 if files exist
+      if (queueTotalFiles > 0) {
+        console.log('[AudioPlayer] Attempting to fix queue index...')
+        audioQueue.jumpToIndex(0)
+        return // Let the queue event trigger a re-render
+      }
       return
     }
 
-    const audioFile = audioFiles[currentAudioIndex]
-    if (!audioFile) return
+    console.log(`[AudioPlayer] ✅ Loading audio for queue index ${actualQueueIndex}, paragraph ${currentFile.paragraphNumber}`)
+    
+    // Validate audio URL
+    if (!currentFile.audioURL) {
+      console.error('[AudioPlayer] ❌ Audio file has no URL:', currentFile)
+      return
+    }
 
     let howl: Howl | null = null
     let intervalId: ReturnType<typeof setInterval> | null = null
@@ -139,67 +206,108 @@ function AudioPlayer() {
 
     // Clean up previous audio
     if (currentHowl) {
-      currentHowl.unload()
+      try {
+        currentHowl.off() // Remove all listeners
+        if (currentHowl.playing()) {
+          currentHowl.pause()
+        }
+        currentHowl.unload()
+      } catch (error) {
+        console.warn('[AudioPlayer] Error cleaning previous audio:', error)
+      }
       setCurrentHowl(null)
     }
 
-    // Clear any existing interval
+    // Clear progress interval
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
     }
 
-    // Reset progress when switching to new audio file
-    // Đặt lại tiến độ khi chuyển sang file audio mới
+    // Reset UI state
     setCurrentTime(0)
     setDuration(0)
     setIsLoading(true)
-    setCurrentParagraph(audioFile.paragraphNumber)
 
-    // Convert relative URL to absolute URL for Howler.js
-    // Prefer hitting the backend directly instead of going through the Vite proxy,
-    // because some browsers/devtools will show proxied media/Range requests as "canceled"
-    // when the underlying connection is interrupted or re-used.
-    // Chuyển URL tương đối thành URL tuyệt đối cho Howler.js, ưu tiên gọi trực tiếp backend
+    // Build audio URL
     const backendBaseUrl = (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:11110'
-    const audioSrc = audioFile.audioURL.startsWith('http')
-      ? audioFile.audioURL  // Already absolute
-      : `${backendBaseUrl}${audioFile.audioURL}`  // Call backend directly (e.g. http://localhost:11110/static/...)
+    const audioSrc = currentFile.audioURL.startsWith('http')
+      ? currentFile.audioURL
+      : `${backendBaseUrl}${currentFile.audioURL}`
 
-    // Configure Howler.js for streaming audio
-    // With html5: true, HTML5 Audio API handles Range requests automatically
-    // XHR mode can cause request cancellation, so we avoid it
+    // Capture current queue index at creation time (use actual queue index, not state)
+    const queueIndexAtCreation = audioQueue.getCurrentIndex()
+
+    // Create Howl instance
     howl = new Howl({
       src: [audioSrc],
-      html5: true,  // Use HTML5 Audio (handles Range requests automatically)
-      format: ['wav'],  // Specify format explicitly
-      preload: 'metadata',  // Load metadata first, allows streaming
+      html5: true,
+      format: ['wav'],
+      preload: 'metadata',
       volume: volume,
       rate: playbackRate,
       onload: () => {
         if (!isMounted || !howl) return
+        
+        // Check if queue index has changed (this Howl is now stale)
+        const currentQueueIndex = audioQueue.getCurrentIndex()
+        if (currentQueueIndex !== queueIndexAtCreation) {
+          console.log(`[AudioPlayer] onload IGNORED - queue index changed from ${queueIndexAtCreation} to ${currentQueueIndex}`)
+          return
+        }
+        
         setDuration(howl.duration())
         setIsLoading(false)
-        if (isPlaying && !isInitializedRef.current) {
+        
+        // Auto-play if currently playing (for seamless transitions)
+        if (isPlaying) {
           howl.play()
-          isInitializedRef.current = true
         }
       },
       onplay: () => {
         if (!isMounted) return
-        playAction()
+        
+        // Check if queue index has changed
+        const currentQueueIndex = audioQueue.getCurrentIndex()
+        if (currentQueueIndex !== queueIndexAtCreation) {
+          console.log(`[AudioPlayer] onplay IGNORED - queue index changed from ${queueIndexAtCreation} to ${currentQueueIndex}`)
+          return
+        }
+        
+        if (!isPlaying) {
+          playAction()
+        }
       },
       onpause: () => {
         if (!isMounted) return
-        pauseAction()
+        
+        // Check if queue index has changed
+        const currentQueueIndex = audioQueue.getCurrentIndex()
+        if (currentQueueIndex !== queueIndexAtCreation) {
+          return
+        }
+        
+        if (isPlaying) {
+          pauseAction()
+        }
       },
       onend: () => {
         if (!isMounted) return
-        // Auto-advance to next paragraph
-        if (currentAudioIndex < audioFiles.length - 1) {
-          setCurrentAudioIndex(currentAudioIndex + 1)
-        } else {
-          // End of chapter
+        
+        // CRITICAL: Check if this Howl is still for the current queue index
+        const currentQueueIndex = audioQueue.getCurrentIndex()
+        if (currentQueueIndex !== queueIndexAtCreation) {
+          console.log(`[AudioPlayer] onend IGNORED - queue index changed from ${queueIndexAtCreation} to ${currentQueueIndex}`)
+          return
+        }
+        
+        // Advance queue (atomic operation)
+        console.log(`[AudioPlayer] Audio ended for queue index ${queueIndexAtCreation}, advancing queue`)
+        const advanced = audioQueue.advanceNext()
+        
+        if (!advanced) {
+          // End of queue
+          console.log(`[AudioPlayer] Reached end of queue`)
           pauseAction()
         }
       },
@@ -220,16 +328,24 @@ function AudioPlayer() {
     setCurrentHowl(howl)
     setCurrentAudio(howl)
 
-    // Start progress tracking
+    // Progress tracking
     let lastSavedTime = 0
     intervalId = setInterval(() => {
-      if (!isMounted || !howl || !howl.playing()) return
+      if (!isMounted || !howl) return
+      
+      // Check if queue index has changed
+      const currentQueueIndex = audioQueue.getCurrentIndex()
+      if (currentQueueIndex !== queueIndexAtCreation) {
+        return // Stop tracking if queue changed
+      }
+      
+      if (!howl.playing()) return
 
       const seek = howl.seek() as number
       if (typeof seek === 'number') {
         setCurrentTime(seek)
 
-        // Auto-save progress every N seconds (debounced)
+        // Auto-save progress
         const currentTimeFloor = Math.floor(seek)
         if (
           novelId && 
@@ -241,7 +357,7 @@ function AudioPlayer() {
           saveProgress({
             novelId,
             chapterNumber,
-            paragraphNumber: audioFile.paragraphNumber,
+            paragraphNumber: currentFile.paragraphNumber,
             position: seek,
           }).catch((error) => {
             logError('Failed to save progress', error)
@@ -252,11 +368,10 @@ function AudioPlayer() {
 
     progressIntervalRef.current = intervalId
 
-    // Cleanup on unmount or dependency change
+    // Cleanup
     return () => {
       isMounted = false
       
-      // Clear interval
       if (intervalId) {
         clearInterval(intervalId)
       }
@@ -265,15 +380,15 @@ function AudioPlayer() {
         progressIntervalRef.current = null
       }
 
-      // Save progress before cleanup if audio was playing
-      if (novelId && chapterNumber && howl) {
+      // Save progress
+      if (novelId && chapterNumber && howl && queueIndexAtCreation === audioQueue.getCurrentIndex()) {
         try {
           const seek = howl.seek()
           if (typeof seek === 'number' && seek > 0) {
             saveProgress({
               novelId,
               chapterNumber,
-              paragraphNumber: audioFile.paragraphNumber,
+              paragraphNumber: currentFile.paragraphNumber,
               position: seek,
             }).catch((error) => {
               logError('Failed to save progress on cleanup', error)
@@ -284,57 +399,98 @@ function AudioPlayer() {
         }
       }
 
-      // Clean up Howl instance
+      // Clean up Howl
       if (howl) {
-        // Stop playing first
-        if (howl.playing()) {
-          howl.pause()
+        try {
+          howl.off()
+          if (howl.playing()) {
+            howl.pause()
+          }
+          howl.unload()
+        } catch (error) {
+          console.warn('[AudioPlayer] Error cleaning up Howl:', error)
         }
-        // Unload to free memory
-        howl.unload()
         howl = null
       }
     }
-  }, [currentAudioIndex, audioFiles, isPlaying, playbackRate, volume, showPlayer, novelId, chapterNumber, setCurrentParagraph, setCurrentTime, setDuration, setIsLoading, playAction, pauseAction, setCurrentAudioIndex, saveProgress])
+  }, [queueCurrentIndex, queueCurrentFile, queueTotalFiles, isPlaying, playbackRate, volume, showPlayer, novelId, chapterNumber, setCurrentTime, setDuration, setIsLoading, playAction, pauseAction, setCurrentAudio, saveProgress])
+  // NOTE: currentHowl is NOT in dependencies - it's set inside this effect, adding it would cause infinite loop
 
-  // Update Howl volume when volume changes
+  // Update volume
   useEffect(() => {
     if (currentHowl) {
       currentHowl.volume(volume)
     }
   }, [volume, currentHowl])
 
-  // Update Howl rate when playbackRate changes
+  // Update playback rate
   useEffect(() => {
     if (currentHowl) {
       currentHowl.rate(playbackRate)
     }
   }, [playbackRate, currentHowl])
 
-  const handlePlay = () => {
-    if (currentHowl) {
-      if (currentHowl.playing()) {
-        currentHowl.pause()
+  // Play/Pause handler
+  const handlePlay = useCallback(() => {
+    console.log('[AudioPlayer] handlePlay called', {
+      hasCurrentHowl: !!currentHowl,
+      isLoading,
+      isPlaying,
+      queueCurrentFile: queueCurrentFile?.paragraphNumber,
+      queueCurrentIndex,
+      queueTotalFiles
+    })
+    
+    // Get current Howl from store (might be more up-to-date than local state)
+    const howlToUse = currentHowl || useAudioStore.getState().currentAudio
+    
+    if (!howlToUse) {
+      console.warn('[AudioPlayer] handlePlay: No Howl instance available')
+      // Try to get from queue - maybe audio is loading
+      const currentFile = audioQueue.getCurrentFile()
+      if (currentFile) {
+        if (isLoading) {
+          console.log('[AudioPlayer] Audio is loading, setting play state - will play when loaded')
+          playAction() // Set play state - will auto-play when loaded
+        } else {
+          console.warn('[AudioPlayer] No Howl instance but file exists in queue - audio loading effect may not have run')
+        }
+      } else {
+        console.error('[AudioPlayer] No Howl instance and no current file in queue')
+      }
+      return
+    }
+
+    try {
+      if (howlToUse.playing()) {
+        console.log('[AudioPlayer] Pausing audio')
+        howlToUse.pause()
         pauseAction()
       } else {
-        currentHowl.play()
-        playAction()
+        console.log('[AudioPlayer] Playing audio')
+        const playId = howlToUse.play()
+        if (playId) {
+          playAction()
+        } else if (isLoading) {
+          console.log('[AudioPlayer] play() returned no ID (still loading), setting play state')
+          playAction() // Will play when loaded
+        } else {
+          console.warn('[AudioPlayer] play() returned no ID and not loading')
+        }
       }
+    } catch (error) {
+      logError('Error in handlePlay', error)
     }
-  }
+  }, [currentHowl, isLoading, isPlaying, playAction, pauseAction, queueCurrentFile, queueCurrentIndex, queueTotalFiles])
 
   const handlePrevious = () => {
-    if (currentAudioIndex > 0) {
-      setCurrentAudioIndex(currentAudioIndex - 1)
-      setCurrentTime(0)
-    }
+    // Use queue for navigation
+    audioQueue.goPrevious()
   }
 
   const handleNext = () => {
-    if (currentAudioIndex < audioFiles.length - 1) {
-      setCurrentAudioIndex(currentAudioIndex + 1)
-      setCurrentTime(0)
-    }
+    // Use queue for navigation
+    audioQueue.advanceNext()
   }
 
   const handleReplay = () => {
@@ -366,29 +522,26 @@ function AudioPlayer() {
     currentHowl.seek(clampedTime)
     setCurrentTime(clampedTime)
     
-    // Resume playing if it was playing before
     if (isPlaying && !currentHowl.playing()) {
       currentHowl.play()
     }
   }
 
-  const handleProgressHover = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Could add tooltip showing hover time here if needed
-    // For now, we just handle the click for seeking
-  }
-
   const handleClose = useCallback(() => {
-    // Clean up audio
     if (currentHowl) {
-      if (currentHowl.playing()) {
-        currentHowl.pause()
+      try {
+        currentHowl.off()
+        if (currentHowl.playing()) {
+          currentHowl.pause()
+        }
+        currentHowl.unload()
+      } catch (error) {
+        console.warn('[AudioPlayer] Error closing audio:', error)
       }
-      currentHowl.unload()
       setCurrentHowl(null)
       setCurrentAudio(null)
     }
     
-    // Clear interval
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
@@ -396,36 +549,31 @@ function AudioPlayer() {
     
     pauseAction()
     setShowPlayer(false)
-    setAudioFiles([])
+    audioQueue.reset()
     
-    // Save progress before closing if audio was playing
     if (novelId && chapterNumber && currentHowl) {
       try {
         const seek = currentHowl.seek()
-        if (typeof seek === 'number' && seek > 0) {
-          const audioFile = audioFiles[currentAudioIndex]
-          if (audioFile) {
-            saveProgress({
-              novelId,
-              chapterNumber,
-              paragraphNumber: audioFile.paragraphNumber,
-              position: seek,
-            }).catch((error) => {
-              logError('Failed to save progress on close', error)
-            })
-          }
+        if (typeof seek === 'number' && seek > 0 && queueCurrentFile) {
+          saveProgress({
+            novelId,
+            chapterNumber,
+            paragraphNumber: queueCurrentFile.paragraphNumber,
+            position: seek,
+          }).catch((error) => {
+            logError('Failed to save progress on close', error)
+          })
         }
       } catch (error) {
         logError('Error saving progress on close', error)
       }
     }
-  }, [currentHowl, novelId, chapterNumber, audioFiles, currentAudioIndex, pauseAction, setShowPlayer, setAudioFiles, setCurrentAudio, saveProgress])
+  }, [currentHowl, novelId, chapterNumber, queueCurrentFile, pauseAction, setCurrentAudio, saveProgress])
 
-  if (!showPlayer || audioFiles.length === 0) {
+  if (!showPlayer || queueTotalFiles === 0 || !queueCurrentFile) {
     return null
   }
 
-  const currentFile = audioFiles[currentAudioIndex]
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
   return (
@@ -435,11 +583,11 @@ function AudioPlayer() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-              Chapter {chapterNumber} - Paragraph {currentFile?.paragraphNumber || 0} / {paragraphs?.length || audioFiles.length}
+              Chapter {chapterNumber} - Paragraph {queueCurrentFile?.paragraphNumber || 0} / {paragraphs?.length || queueTotalFiles}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              {currentFile 
-                ? `Playing paragraph ${currentFile.paragraphNumber !== null && currentFile.paragraphNumber !== undefined ? currentFile.paragraphNumber : '?'}` 
+              {queueCurrentFile 
+                ? `Playing paragraph ${queueCurrentFile.paragraphNumber !== null && queueCurrentFile.paragraphNumber !== undefined ? queueCurrentFile.paragraphNumber : '?'} (Queue: ${queueCurrentIndex + 1}/${queueTotalFiles})` 
                 : 'Loading...'}
             </p>
           </div>
@@ -453,12 +601,11 @@ function AudioPlayer() {
           </button>
         </div>
 
-        {/* Progress Bar - Clickable for seeking */}
+        {/* Progress Bar */}
         <div className="mb-3">
           <div 
             className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-1 cursor-pointer relative"
             onClick={handleSeek}
-            onMouseMove={handleProgressHover}
             role="progressbar"
             tabIndex={0}
             onKeyDown={(e) => {
@@ -489,7 +636,7 @@ function AudioPlayer() {
           <div className="flex items-center space-x-2">
             <button
               onClick={handlePrevious}
-              disabled={currentAudioIndex <= 0 || isLoading}
+              disabled={audioQueue.isAtStart() || isLoading}
               className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label="Previous paragraph"
               type="button"
@@ -499,10 +646,11 @@ function AudioPlayer() {
 
             <button
               onClick={handlePlay}
-              disabled={isLoading || !currentFile}
+              disabled={isLoading || (!queueCurrentFile && !audioQueue.getCurrentFile())}
               className="p-3 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label={isPlaying ? 'Pause' : 'Play'}
               type="button"
+              title={!queueCurrentFile && !audioQueue.getCurrentFile() ? 'Waiting for audio to load...' : undefined}
             >
               {isLoading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -515,7 +663,7 @@ function AudioPlayer() {
 
             <button
               onClick={handleReplay}
-              disabled={isLoading || !currentFile || !currentHowl}
+              disabled={isLoading || !queueCurrentFile || !currentHowl}
               className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label="Replay current paragraph"
               type="button"
@@ -526,7 +674,7 @@ function AudioPlayer() {
 
             <button
               onClick={handleNext}
-              disabled={currentAudioIndex >= audioFiles.length - 1 || isLoading}
+              disabled={audioQueue.isAtEnd() || isLoading}
               className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label="Next paragraph"
               type="button"

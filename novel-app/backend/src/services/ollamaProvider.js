@@ -154,10 +154,82 @@ export class OllamaProvider {
         }
       }
 
+      // Try to fix incomplete JSON (common when response is truncated)
+      // Attempt to recover from truncated responses
+      if (!jsonStr.endsWith('}')) {
+        // Find the last complete key-value pair
+        const lastCommaIndex = jsonStr.lastIndexOf(',');
+        const lastColonIndex = jsonStr.lastIndexOf(':');
+        
+        if (lastCommaIndex > lastColonIndex) {
+          // We have a comma but the value is incomplete
+          // Try to close the JSON properly
+          jsonStr = jsonStr.substring(0, lastCommaIndex);
+          jsonStr += '}';
+        } else if (lastColonIndex > 0) {
+          // We have a colon but incomplete value
+          // Find the key and remove the incomplete entry
+          const beforeColon = jsonStr.substring(0, lastColonIndex);
+          const keyStart = beforeColon.lastIndexOf('"');
+          if (keyStart > 0) {
+            const keyEnd = jsonStr.indexOf('"', keyStart + 1);
+            if (keyEnd > keyStart) {
+              // Remove from the incomplete key onwards
+              const beforeKey = jsonStr.lastIndexOf(',', keyStart - 1);
+              if (beforeKey > 0) {
+                jsonStr = jsonStr.substring(0, beforeKey);
+              } else {
+                // This was the first key, just remove it
+                jsonStr = jsonStr.substring(0, keyStart - 1);
+              }
+              jsonStr += '}';
+            }
+          }
+        }
+      }
+
       return JSON.parse(jsonStr);
     } catch (error) {
       console.error('[OllamaProvider] JSON parse error:', error.message);
-      console.error('[OllamaProvider] Response:', response.substring(0, 500));
+      console.error('[OllamaProvider] Response length:', response.length);
+      console.error('[OllamaProvider] Response preview:', response.substring(0, 500));
+      console.error('[OllamaProvider] Response ending:', response.substring(Math.max(0, response.length - 100)));
+      
+      // Try to extract any valid JSON from truncated response
+      try {
+        // Use original response for recovery, not processed jsonStr
+        const originalResponse = response.trim();
+        
+        // Find the last complete key-value pair and close the JSON
+        // Look for pattern: "N": "role",
+        const pattern = /"(\d+)":\s*"([^"]*)"/g;
+        const matches = [];
+        let match;
+        
+        while ((match = pattern.exec(originalResponse)) !== null) {
+          // Verify the value is a valid role
+          const role = match[2].toLowerCase();
+          if (['narrator', 'male', 'female'].includes(role) || role.length > 0) {
+            matches.push({
+              key: match[1],
+              value: match[2],
+              index: match.index
+            });
+          }
+        }
+        
+        // If we found valid entries, reconstruct JSON
+        if (matches.length > 0) {
+          const reconstructed = '{' + matches.map(m => `"${m.key}": "${m.value}"`).join(', ') + '}';
+          console.warn(`[OllamaProvider] Recovered ${matches.length} entries from truncated JSON (original length: ${originalResponse.length})`);
+          const recovered = JSON.parse(reconstructed);
+          return recovered;
+        }
+      } catch (recoveryError) {
+        console.warn('[OllamaProvider] Failed to recover JSON:', recoveryError.message);
+        // Recovery failed, throw original error
+      }
+      
       throw new Error(`Failed to parse JSON response: ${error.message}`);
     }
   }
