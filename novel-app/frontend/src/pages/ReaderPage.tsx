@@ -13,6 +13,7 @@ import Loading from '../components/Common/Loading'
 import ErrorMessage from '../components/Common/ErrorMessage'
 import * as audioService from '../services/audio'
 import * as generationService from '../services/generation'
+import * as roleDetectionService from '../services/roleDetection'
 import { logError } from '../utils/logger'
 import { AUDIO_CONFIG } from '../utils/constants'
 
@@ -49,6 +50,8 @@ function ReaderPage() {
   const [showResumePrompt, setShowResumePrompt] = useState(false)
   const [hasLoadedProgress, setHasLoadedProgress] = useState(false)
   const [forceRegenerate, setForceRegenerate] = useState(false)
+  const [roleDetectionLoading, setRoleDetectionLoading] = useState(false)
+  const [roleDetectionLoadingText, setRoleDetectionLoadingText] = useState<string>('')
   const paragraphRefs = useRef<Map<number, HTMLParagraphElement>>(new Map())
 
   useEffect(() => {
@@ -255,6 +258,98 @@ function ReaderPage() {
     }
   }
 
+  const handleDetectChapterRoles = async () => {
+    if (!id || !chapterNumber) return
+
+    try {
+      setRoleDetectionLoading(true)
+      setRoleDetectionLoadingText(`Starting role detection for Chapter ${chapterNumber}...`)
+
+      // Start detection (returns immediately with progressId)
+      const startResult = await roleDetectionService.detectChapterRoles(id, chapterNumber)
+      
+      // Poll for completion (check status every 3 seconds)
+      const maxAttempts = 600 // 30 minutes max (600 * 3s = 1800s)
+      let attempts = 0
+      
+      const pollStatus = async (): Promise<void> => {
+        try {
+          const status = await roleDetectionService.getChapterRoleStatus(id, chapterNumber)
+          
+          if (status.isComplete || attempts >= maxAttempts) {
+            // Reload chapter to get updated paragraphs with roles
+            await loadChapter(id, chapterNumber)
+            
+            if (status.isComplete) {
+              alert(
+                `Role detection completed!\n` +
+                `Updated: ${status.paragraphsWithRoles}/${status.totalParagraphs} paragraphs\n` +
+                `Roles: ${JSON.stringify(status.roleCounts, null, 2)}`
+              )
+            } else {
+              alert('Role detection timed out. Please check the status.')
+            }
+            
+            setRoleDetectionLoading(false)
+            setRoleDetectionLoadingText('')
+            return
+          }
+          
+          // Update loading text
+          setRoleDetectionLoadingText(
+            `Detecting roles... ${status.progressPercent}% (${status.paragraphsWithRoles}/${status.totalParagraphs})`
+          )
+          
+          attempts++
+          setTimeout(pollStatus, 3000) // Poll every 3 seconds
+        } catch (error) {
+          logError('Failed to poll role detection status', error)
+          setRoleDetectionLoading(false)
+          setRoleDetectionLoadingText('')
+          alert('Error checking role detection status. Please refresh the page.')
+        }
+      }
+      
+      // Start polling after a short delay
+      setTimeout(pollStatus, 3000)
+      
+    } catch (error) {
+      logError('Failed to start role detection', error)
+      setRoleDetectionLoading(false)
+      setRoleDetectionLoadingText('')
+      alert(`Failed to start role detection: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleDetectNovelRoles = async () => {
+    if (!id) return
+
+    try {
+      setRoleDetectionLoading(true)
+      setRoleDetectionLoadingText('Detecting roles for all chapters...')
+
+      const result = await roleDetectionService.detectNovelRoles(id)
+      
+      // Reload current chapter to get updated paragraphs
+      if (chapterNumber) {
+        await loadChapter(id, chapterNumber)
+      }
+
+      alert(
+        `Novel role detection completed!\n` +
+        `Processed: ${result.processedChapters} chapters\n` +
+        `Skipped: ${result.skippedChapters} chapters\n` +
+        `Updated: ${result.totalParagraphsUpdated} paragraphs`
+      )
+    } catch (error) {
+      logError('Failed to detect novel roles', error)
+      alert(`Failed to detect roles: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setRoleDetectionLoading(false)
+      setRoleDetectionLoadingText('')
+    }
+  }
+
   if (novelLoading || readerLoading) {
     return <Loading message="Loading chapter..." />
   }
@@ -284,6 +379,10 @@ function ReaderPage() {
         novel={currentNovel}
         currentChapterNumber={chapterNumber || 1}
         onChapterChange={handleChapterChange}
+        onDetectChapterRoles={id && chapterNumber ? handleDetectChapterRoles : undefined}
+        onDetectNovelRoles={id ? handleDetectNovelRoles : undefined}
+        roleDetectionLoading={roleDetectionLoading}
+        roleDetectionLoadingText={roleDetectionLoadingText}
       />
 
       {/* Resume Reading Prompt */}
@@ -402,6 +501,7 @@ function ReaderPage() {
           currentParagraphNumber={currentParagraphNumber || 0}
           paragraphRefs={paragraphRefs}
           onParagraphClick={handleParagraphClick}
+          showRoleIndicator={true}
         />
       )}
     </div>

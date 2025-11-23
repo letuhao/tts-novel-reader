@@ -1,13 +1,25 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Sparkles, SparklesIcon } from 'lucide-react'
 import type { Novel } from '../../types'
 
 interface ReaderHeaderProps {
   novel: Novel
   currentChapterNumber: number
   onChapterChange?: (chapterNumber: number) => void
+  onDetectChapterRoles?: () => void
+  onDetectNovelRoles?: () => void
+  roleDetectionLoading?: boolean
+  roleDetectionLoadingText?: string
 }
 
-function ReaderHeader({ novel, currentChapterNumber, onChapterChange }: ReaderHeaderProps) {
+function ReaderHeader({ 
+  novel, 
+  currentChapterNumber, 
+  onChapterChange,
+  onDetectChapterRoles,
+  onDetectNovelRoles,
+  roleDetectionLoading = false,
+  roleDetectionLoadingText
+}: ReaderHeaderProps) {
   const handlePrevChapter = () => {
     if (currentChapterNumber > 1 && onChapterChange) {
       onChapterChange(currentChapterNumber - 1)
@@ -28,7 +40,7 @@ function ReaderHeader({ novel, currentChapterNumber, onChapterChange }: ReaderHe
         </h1>
       </div>
       
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-4 mb-4">
         <button
           onClick={handlePrevChapter}
           disabled={currentChapterNumber <= 1}
@@ -67,6 +79,45 @@ function ReaderHeader({ novel, currentChapterNumber, onChapterChange }: ReaderHe
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Role Detection Buttons */}
+      {(onDetectChapterRoles || onDetectNovelRoles) && (
+        <div className="flex items-center space-x-2 flex-wrap gap-2">
+          {onDetectChapterRoles && (
+            <button
+              onClick={onDetectChapterRoles}
+              disabled={roleDetectionLoading}
+              className="px-3 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              type="button"
+              title="Detect roles for this chapter"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>
+                {roleDetectionLoading && roleDetectionLoadingText?.includes('Chapter')
+                  ? roleDetectionLoadingText
+                  : 'Detect Roles (Chapter)'}
+              </span>
+            </button>
+          )}
+          
+          {onDetectNovelRoles && (
+            <button
+              onClick={onDetectNovelRoles}
+              disabled={roleDetectionLoading}
+              className="px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              type="button"
+              title="Detect roles for all chapters"
+            >
+              <SparklesIcon className="w-4 h-4" />
+              <span>
+                {roleDetectionLoading && roleDetectionLoadingText?.includes('Novel')
+                  ? roleDetectionLoadingText
+                  : 'Detect Roles (All Chapters)'}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

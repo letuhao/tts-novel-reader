@@ -26,6 +26,8 @@ export class ParagraphModel {
       paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
       text: paragraph.text,
       lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      role: paragraph.role || null,  // Add role (may not exist in old databases)
+      voiceId: paragraph.voice_id || null,  // Add voice_id (may not exist in old databases)
       createdAt: paragraph.created_at,
       updatedAt: paragraph.updated_at
     }));
@@ -52,6 +54,8 @@ export class ParagraphModel {
       paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
       text: paragraph.text,
       lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      role: paragraph.role || null,
+      voiceId: paragraph.voice_id || null,
       createdAt: paragraph.created_at,
       updatedAt: paragraph.updated_at
     }));
@@ -76,6 +80,8 @@ export class ParagraphModel {
       paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
       text: paragraph.text,
       lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      role: paragraph.role || null,
+      voiceId: paragraph.voice_id || null,
       createdAt: paragraph.created_at,
       updatedAt: paragraph.updated_at
     };
@@ -103,6 +109,8 @@ export class ParagraphModel {
       paragraphNumber: paragraph.paragraph_number,  // Convert to camelCase
       text: paragraph.text,
       lines: paragraph.lines ? JSON.parse(paragraph.lines) : null,
+      role: paragraph.role || null,
+      voiceId: paragraph.voice_id || null,
       createdAt: paragraph.created_at,
       updatedAt: paragraph.updated_at
     };
@@ -119,8 +127,8 @@ export class ParagraphModel {
     db.prepare(`
       INSERT INTO paragraphs (
         id, novel_id, chapter_id, chapter_number, paragraph_number,
-        text, lines, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        text, lines, role, voice_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       paragraphData.id,
       paragraphData.novelId,
@@ -129,6 +137,8 @@ export class ParagraphModel {
       paragraphData.paragraphNumber,
       paragraphData.text,
       paragraphData.lines ? JSON.stringify(paragraphData.lines) : null,
+      paragraphData.role || null,
+      paragraphData.voiceId || null,
       now,
       now
     );
@@ -150,8 +160,8 @@ export class ParagraphModel {
     const insert = sqlite.prepare(`
       INSERT INTO paragraphs (
         id, novel_id, chapter_id, chapter_number, paragraph_number,
-        text, lines, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        text, lines, role, voice_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     // Use SQLite transaction
@@ -165,6 +175,8 @@ export class ParagraphModel {
           paragraph.paragraphNumber,
           paragraph.text,
           paragraph.lines ? JSON.stringify(paragraph.lines) : null,
+          paragraph.role || null,
+          paragraph.voiceId || null,
           now,
           now
         );
@@ -194,6 +206,14 @@ export class ParagraphModel {
     if (updates.lines !== undefined) {
       updatesList.push('lines = ?');
       values.push(JSON.stringify(updates.lines));
+    }
+    if (updates.role !== undefined) {
+      updatesList.push('role = ?');
+      values.push(updates.role);
+    }
+    if (updates.voiceId !== undefined) {
+      updatesList.push('voice_id = ?');
+      values.push(updates.voiceId);
     }
     
     updatesList.push('updated_at = ?');

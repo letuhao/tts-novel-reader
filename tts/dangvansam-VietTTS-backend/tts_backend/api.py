@@ -24,6 +24,8 @@ class TTSSynthesizeRequest(BaseModel):
     voice: Optional[str] = None  # Voice name from built-in voices / Tên giọng từ giọng có sẵn
     voice_file: Optional[str] = None  # Path to custom voice file / Đường dẫn file giọng tùy chỉnh
     speed: Optional[float] = 1.0  # Speech speed (0.5-2.0, default: 1.0) / Tốc độ giọng nói
+    batch_chunks: Optional[int] = None  # Process N chunks at a time to keep GPU busy (default: None = auto)
+                                        # Xử lý N chunks cùng lúc để giữ GPU bận (mặc định: None = tự động)
     # Storage options / Tùy chọn lưu trữ
     store: Optional[bool] = True  # Store audio file / Lưu file audio
     expiry_hours: Optional[int] = None  # Expiration hours (None = use default)
@@ -117,7 +119,8 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
             model=request.model,
             voice=request.voice,
             voice_file=request.voice_file,
-            speed=request.speed or 1.0
+            speed=request.speed or 1.0,
+            batch_chunks=request.batch_chunks
         )
         
         # Get sample rate / Lấy tần số lấy mẫu

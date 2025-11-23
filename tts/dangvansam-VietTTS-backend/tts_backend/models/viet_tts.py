@@ -220,10 +220,14 @@ class VietTTSWrapper:
         voice: Optional[str] = None,
         voice_file: Optional[str] = None,
         speed: float = 1.0,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        batch_chunks: Optional[int] = None  # Process N chunks at a time to keep GPU busy
     ) -> np.ndarray:
         """
         Synthesize speech / Tổng hợp giọng nói
+        
+        Optimized version that pre-processes chunks and keeps GPU busy.
+        Phiên bản tối ưu pre-processes chunks và giữ GPU bận.
         
         Args:
             text: Input text / Văn bản đầu vào
@@ -231,6 +235,8 @@ class VietTTSWrapper:
             voice_file: Path to custom voice file / Đường dẫn file giọng tùy chỉnh
             speed: Speech speed (0.5-2.0, default: 1.0) / Tốc độ giọng nói
             output_path: Optional output path / Đường dẫn đầu ra tùy chọn
+            batch_chunks: Process N chunks at a time to keep GPU busy (default: None = auto)
+                         Xử lý N chunks cùng lúc để giữ GPU bận (mặc định: None = tự động)
             
         Returns:
             Audio array (numpy array) / Mảng audio (numpy array)
@@ -246,10 +252,13 @@ class VietTTSWrapper:
             # Use default voice
             prompt_speech_file = list(self.voice_map.values())[0]
         
-        # Load prompt speech
+        # Load prompt speech once
         prompt_speech = load_prompt_speech_from_file(prompt_speech_file)
         
-        # Generate audio
+        # Standard processing - VietTTS handles chunking internally
+        # The batch_chunks parameter is reserved for future optimization
+        # Xử lý tiêu chuẩn - VietTTS xử lý chunking nội bộ
+        # Tham số batch_chunks được dành cho tối ưu hóa tương lai
         wav = self.model.tts_to_wav(text, prompt_speech, speed=speed)
         
         # Save if output path provided

@@ -128,6 +128,7 @@ class TTSService:
         voice: Optional[str] = None,
         voice_file: Optional[str] = None,
         speed: float = 1.0,
+        batch_chunks: Optional[int] = None,
         **kwargs
     ):
         """
@@ -153,6 +154,7 @@ class TTSService:
                 voice=voice,
                 voice_file=voice_file,
                 speed=speed,
+                batch_chunks=batch_chunks,
                 **kwargs
             )
         else:

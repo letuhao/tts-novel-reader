@@ -1,18 +1,21 @@
 import { useEffect, useRef } from 'react'
 import type { Paragraph } from '../../types'
+import RoleIndicator from './RoleIndicator'
 
 interface ChapterContentProps {
   paragraphs: Paragraph[]
   currentParagraphNumber: number
   onParagraphClick?: (paragraphNumber: number) => void
   paragraphRefs?: React.MutableRefObject<Map<number, HTMLParagraphElement>>
+  showRoleIndicator?: boolean  // Whether to show role indicators
 }
 
 function ChapterContent({ 
   paragraphs, 
   currentParagraphNumber, 
   onParagraphClick,
-  paragraphRefs 
+  paragraphRefs,
+  showRoleIndicator = true
 }: ChapterContentProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -37,15 +40,15 @@ function ChapterContent({
       className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 prose dark:prose-invert max-w-none"
     >
       {paragraphs.map((paragraph) => (
-        <p
+        <div
           key={paragraph.id}
           ref={(el) => {
             if (el && paragraphRefs) {
-              paragraphRefs.current.set(paragraph.paragraphNumber, el)
+              paragraphRefs.current.set(paragraph.paragraphNumber, el as HTMLParagraphElement)
             }
           }}
           className={`
-            mb-4 text-gray-900 dark:text-gray-100 leading-relaxed transition-all duration-200
+            mb-4 transition-all duration-200 flex items-start space-x-3
             ${paragraph.paragraphNumber === currentParagraphNumber
               ? 'bg-yellow-100 dark:bg-yellow-900/30 px-2 py-1 rounded shadow-sm'
               : ''
@@ -54,8 +57,22 @@ function ChapterContent({
           `}
           onClick={() => onParagraphClick?.(paragraph.paragraphNumber)}
         >
-          {paragraph.text}
-        </p>
+          {/* Role Indicator - Left Side */}
+          {showRoleIndicator && (paragraph.role || paragraph.voiceId) && (
+            <div className="flex-shrink-0 pt-1">
+              <RoleIndicator 
+                role={paragraph.role || undefined}
+                voiceId={paragraph.voiceId || undefined}
+                compact={true}
+              />
+            </div>
+          )}
+          
+          {/* Paragraph Text */}
+          <p className="text-gray-900 dark:text-gray-100 leading-relaxed flex-1">
+            {paragraph.text}
+          </p>
+        </div>
       ))}
     </div>
   )

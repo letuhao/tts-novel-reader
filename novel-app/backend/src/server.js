@@ -16,6 +16,8 @@ import audioRoutes from './routes/audio.js';
 import progressRoutes from './routes/progress.js';
 import workerRoutes from './routes/worker.js';
 import generationRoutes from './routes/generation.js';
+import roleDetectionRoutes from './routes/roleDetection.js';
+import roleDetectionWorkerRoutes from './routes/roleDetectionWorker.js';
 
 // Load environment variables
 dotenv.config();
@@ -133,6 +135,8 @@ app.use('/api/audio', audioRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/worker', workerRoutes);
 app.use('/api/generation', generationRoutes);  // Generation progress routes
+app.use('/api/role-detection', roleDetectionRoutes);  // Role detection routes
+app.use('/api/role-detection-worker', roleDetectionWorkerRoutes);  // Role detection worker routes
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -76,6 +76,7 @@ export default class Database {
     `);
     
     // Create paragraphs table (normalized, not JSON)
+    // Don't include role and voice_id in CREATE TABLE - add via migration instead
     this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS paragraphs (
         id TEXT PRIMARY KEY,
@@ -96,6 +97,58 @@ export default class Database {
       CREATE INDEX IF NOT EXISTS idx_paragraphs_chapter ON paragraphs(chapter_id);
       CREATE INDEX IF NOT EXISTS idx_paragraphs_number ON paragraphs(novel_id, chapter_number, paragraph_number);
     `);
+    
+    // Migration: Add role and voice_id columns if they don't exist (for existing databases)
+    // Check if columns exist first, then add if missing
+    try {
+      const tableInfo = this.sqlite.prepare(`PRAGMA table_info(paragraphs)`).all();
+      const columnNames = tableInfo.map(col => col.name);
+      
+      if (!columnNames.includes('role')) {
+        try {
+          this.sqlite.exec(`ALTER TABLE paragraphs ADD COLUMN role TEXT;`);
+          console.log('[Database] ✅ Added "role" column to paragraphs table');
+        } catch (error) {
+          if (!error.message.includes('duplicate column')) {
+            console.error('[Database] ❌ Failed to add "role" column:', error.message);
+          }
+        }
+      }
+      
+      if (!columnNames.includes('voice_id')) {
+        try {
+          this.sqlite.exec(`ALTER TABLE paragraphs ADD COLUMN voice_id TEXT;`);
+          console.log('[Database] ✅ Added "voice_id" column to paragraphs table');
+        } catch (error) {
+          if (!error.message.includes('duplicate column')) {
+            console.error('[Database] ❌ Failed to add "voice_id" column:', error.message);
+          }
+        }
+      }
+      
+      // Refresh table info after migration
+      const updatedTableInfo = this.sqlite.prepare(`PRAGMA table_info(paragraphs)`).all();
+      const updatedColumnNames = updatedTableInfo.map(col => col.name);
+      
+      // Create indexes for role and voice_id ONLY after columns exist
+      if (updatedColumnNames.includes('role')) {
+        try {
+          this.sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_paragraphs_role ON paragraphs(role);`);
+        } catch (error) {
+          // Index might already exist, ignore
+        }
+      }
+      
+      if (updatedColumnNames.includes('voice_id')) {
+        try {
+          this.sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_paragraphs_voice ON paragraphs(voice_id);`);
+        } catch (error) {
+          // Index might already exist, ignore
+        }
+      }
+    } catch (error) {
+      console.error('[Database] Migration error:', error.message);
+    }
     
     // Create generation_progress table (track audio generation status)
     this.sqlite.exec(`

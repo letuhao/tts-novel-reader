@@ -40,6 +40,8 @@ export interface Paragraph {
   paragraphNumber: number
   text: string
   lines: string[] | null
+  role?: string | null  // male/female/narrator
+  voiceId?: string | null  // cdteam/quynh/nu-nhe-nhang
   createdAt: string
   updatedAt: string
 }
