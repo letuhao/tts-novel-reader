@@ -25,7 +25,10 @@ router.post('/generate/chapter', async (req, res, next) => {
       autoVoice = false,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
       autoChunk = true,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài
       maxChars = 256,  // Max chars per chunk / Ký tự tối đa mỗi chunk
-      // Worker options for slower processing
+      // Worker options for parallel processing
+      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 1 for testing)
+      parallelChapters = 2, // Process N chapters concurrently (default: 2)
+      // Total: 1 paragraph × 2 chapters = 2 concurrent jobs (testing Model Pool)
       delayBetweenBatches = 11110, // 3 seconds between batches (50% slower)
       delayBetweenItems = 2000 // 2 seconds between items
     } = req.body;
@@ -46,29 +49,80 @@ router.post('/generate/chapter', async (req, res, next) => {
       autoVoice: autoVoice,
       autoChunk: autoChunk,
       maxChars: maxChars,
+      parallelParagraphs,
+      parallelChapters,
       delayBetweenBatches,
       delayBetweenItems
     });
     const maxParagraphs = req.body.maxParagraphs || null;  // Limit paragraphs for testing
     
-    const result = await worker.generateChapterAudio(
+    // Create progress entry for tracking
+    const { GenerationProgressModel } = await import('../models/GenerationProgress.js');
+    const { ChapterModel } = await import('../models/Chapter.js');
+    
+    // Get chapter to create progress entry
+    const chapter = await ChapterModel.getByNovelAndNumber(novelId, parseInt(chapterNumber));
+    if (!chapter) {
+      return res.status(404).json({
+        success: false,
+        error: `Chapter ${chapterNumber} not found`
+      });
+    }
+    
+    const progress = await GenerationProgressModel.createOrUpdate({
+      novelId: novelId,
+      chapterId: chapter.id,
+      chapterNumber: parseInt(chapterNumber),
+      status: 'pending',
+      speakerId: speakerId,
+      model: 'viettts',
+      progressPercent: 0,
+      startedAt: new Date().toISOString()
+    });
+    
+    // Start generation in background (fire-and-forget)
+    // Bắt đầu generation ở background (fire-and-forget)
+    worker.generateChapterAudio(
       novelId,
       parseInt(chapterNumber),
       { speakerId, expiryHours, speedFactor, forceRegenerate, maxParagraphs }
-    );
-
-    if (result.success) {
-      res.json({
-        success: true,
-        result: result
+    ).then(result => {
+      // Update progress on completion
+      // Cập nhật progress khi hoàn thành
+      console.log(`[Worker Route] Chapter ${chapterNumber} generation completed`);
+      GenerationProgressModel.update(progress.id, {
+        status: result.success ? 'completed' : 'failed',
+        progressPercent: 100,
+        completedAt: new Date().toISOString(),
+        errorMessage: result.error || null
+      }).catch(err => {
+        console.error(`[Worker Route] Failed to update progress: ${err.message}`);
       });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: result.error || 'Generation failed',
-        result: result
+    }).catch(error => {
+      // Update progress on error
+      // Cập nhật progress khi có lỗi
+      console.error(`[Worker Route] Chapter ${chapterNumber} generation failed: ${error.message}`);
+      GenerationProgressModel.update(progress.id, {
+        status: 'failed',
+        errorMessage: error.message,
+        completedAt: new Date().toISOString()
+      }).catch(err => {
+        console.error(`[Worker Route] Failed to update progress: ${err.message}`);
       });
-    }
+    });
+    
+    // Return immediately with progressId
+    // Trả về ngay lập tức với progressId
+    res.json({
+      success: true,
+      message: 'Audio generation started in background',
+      progressId: progress.id,
+      data: {
+        novelId: novelId,
+        chapterNumber: parseInt(chapterNumber),
+        status: 'pending'
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -96,6 +150,9 @@ router.post('/generate/batch', async (req, res, next) => {
     }
 
     const {
+      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 2)
+      parallelChapters = 2, // Process N chapters concurrently (default: 2)
+      // Total: 2 paragraphs × 2 chapters = 4 concurrent jobs
       delayBetweenBatches = 11110,
       delayBetweenItems = 2000
     } = req.body;
@@ -103,6 +160,8 @@ router.post('/generate/batch', async (req, res, next) => {
     const worker = getWorker({ 
       speakerId, 
       expiryHours,
+      parallelParagraphs,
+      parallelChapters,
       delayBetweenBatches,
       delayBetweenItems
     });
@@ -121,6 +180,7 @@ router.post('/generate/batch', async (req, res, next) => {
             speakerId,
             expiryHours,
             forceRegenerate,
+            parallelChapters, // Pass parallelChapters for parallel processing
             onProgress: (progress) => {
               res.write(`data: ${JSON.stringify({ type: 'progress', data: progress })}\n\n`);
             }
@@ -134,16 +194,60 @@ router.post('/generate/batch', async (req, res, next) => {
         res.end();
       }
     } else {
-      // Regular JSON response
-      const result = await worker.generateBatchAudio(
+      // Regular JSON response - fire-and-forget
+      // Phản hồi JSON thông thường - fire-and-forget
+      const { GenerationProgressModel } = await import('../models/GenerationProgress.js');
+      
+      const progress = await GenerationProgressModel.createOrUpdate({
+        novelId: novelId,
+        status: 'pending',
+        model: 'viettts-batch',
+        progressPercent: 0,
+        startedAt: new Date().toISOString()
+      });
+      
+      // Start generation in background (fire-and-forget)
+      // Bắt đầu generation ở background (fire-and-forget)
+      worker.generateBatchAudio(
         novelId,
         chapterNumbers,
-        { speakerId, expiryHours, forceRegenerate }
-      );
-
+        { speakerId, expiryHours, forceRegenerate, parallelChapters }
+      ).then(result => {
+        // Update progress on completion
+        // Cập nhật progress khi hoàn thành
+        console.log(`[Worker Route] Batch generation completed for novel ${novelId}`);
+        GenerationProgressModel.update(progress.id, {
+          status: 'completed',
+          progressPercent: 100,
+          completedAt: new Date().toISOString()
+        }).catch(err => {
+          console.error(`[Worker Route] Failed to update progress: ${err.message}`);
+        });
+      }).catch(error => {
+        // Update progress on error
+        // Cập nhật progress khi có lỗi
+        console.error(`[Worker Route] Batch generation failed: ${error.message}`);
+        GenerationProgressModel.update(progress.id, {
+          status: 'failed',
+          errorMessage: error.message,
+          completedAt: new Date().toISOString()
+        }).catch(err => {
+          console.error(`[Worker Route] Failed to update progress: ${err.message}`);
+        });
+      });
+      
+      // Return immediately with progressId
+      // Trả về ngay lập tức với progressId
       res.json({
         success: true,
-        result: result
+        message: 'Batch audio generation started in background',
+        progressId: progress.id,
+        data: {
+          novelId: novelId,
+          chapterCount: chapterNumbers.length,
+          chapters: chapterNumbers,
+          status: 'pending'
+        }
       });
     }
   } catch (error) {
@@ -172,6 +276,9 @@ router.post('/generate/all', async (req, res, next) => {
     }
 
     const {
+      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 2)
+      parallelChapters = 2, // Process N chapters concurrently (default: 2)
+      // Total: 2 paragraphs × 2 chapters = 4 concurrent jobs
       delayBetweenBatches = 11110,
       delayBetweenItems = 2000
     } = req.body;
@@ -179,44 +286,76 @@ router.post('/generate/all', async (req, res, next) => {
     const worker = getWorker({ 
       speakerId, 
       expiryHours,
+      parallelParagraphs,
+      parallelChapters,
       delayBetweenBatches,
       delayBetweenItems
     });
     
-    // Stream progress if SSE requested
-    if (req.headers.accept === 'text/event-stream') {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
-      try {
-        await worker.generateAllChapters(novelId, {
-          speakerId,
-          expiryHours,
-          forceRegenerate,
-          onProgress: (progress) => {
-            res.write(`data: ${JSON.stringify({ type: 'progress', data: progress })}\n\n`);
-          }
-        });
-
-        res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
-        res.end();
-      } catch (error) {
-        res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
-        res.end();
-      }
-    } else {
-      const result = await worker.generateAllChapters(novelId, {
-        speakerId,
-        expiryHours,
-        forceRegenerate
-      });
-
-      res.json({
-        success: true,
-        result: result
+    // Create overall progress entry
+    // Tạo progress entry tổng thể
+    const { GenerationProgressModel } = await import('../models/GenerationProgress.js');
+    const { NovelModel } = await import('../models/Novel.js');
+    
+    const novel = await NovelModel.getById(novelId);
+    if (!novel) {
+      return res.status(404).json({
+        success: false,
+        error: 'Novel not found'
       });
     }
+    
+    const progress = await GenerationProgressModel.createOrUpdate({
+      novelId: novelId,
+      status: 'pending',
+      model: 'viettts-all-chapters',
+      progressPercent: 0,
+      startedAt: new Date().toISOString()
+    });
+    
+    // Start generation in background (fire-and-forget)
+    // Bắt đầu generation ở background (fire-and-forget)
+    worker.generateAllChapters(novelId, {
+      speakerId,
+      expiryHours,
+      forceRegenerate,
+      parallelChapters
+    }).then(result => {
+      // Update progress on completion
+      // Cập nhật progress khi hoàn thành
+      console.log(`[Worker Route] All chapters generation completed for novel ${novelId}`);
+      GenerationProgressModel.update(progress.id, {
+        status: result.success ? 'completed' : 'failed',
+        progressPercent: 100,
+        completedAt: new Date().toISOString()
+      }).catch(err => {
+        console.error(`[Worker Route] Failed to update progress: ${err.message}`);
+      });
+    }).catch(error => {
+      // Update progress on error
+      // Cập nhật progress khi có lỗi
+      console.error(`[Worker Route] All chapters generation failed: ${error.message}`);
+      GenerationProgressModel.update(progress.id, {
+        status: 'failed',
+        errorMessage: error.message,
+        completedAt: new Date().toISOString()
+      }).catch(err => {
+        console.error(`[Worker Route] Failed to update progress: ${err.message}`);
+      });
+    });
+    
+    // Return immediately with progressId
+    // Trả về ngay lập tức với progressId
+    res.json({
+      success: true,
+      message: 'Audio generation for all chapters started in background',
+      progressId: progress.id,
+      data: {
+        novelId: novelId,
+        novelTitle: novel.title,
+        status: 'pending'
+      }
+    });
   } catch (error) {
     next(error);
   }

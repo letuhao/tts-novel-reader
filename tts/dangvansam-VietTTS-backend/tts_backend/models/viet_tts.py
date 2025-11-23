@@ -255,11 +255,50 @@ class VietTTSWrapper:
         # Load prompt speech once
         prompt_speech = load_prompt_speech_from_file(prompt_speech_file)
         
+        # Validate text before processing / Xác thực văn bản trước khi xử lý
+        text = text.strip() if isinstance(text, str) else str(text).strip()
+        
+        if not text or len(text) == 0:
+            raise ValueError(
+                f"Text is empty. Cannot generate audio from empty text."
+            )
+        
+        # Check for meaningful content (at least 10 characters, not just punctuation)
+        # Kiểm tra nội dung có nghĩa (ít nhất 10 ký tự, không chỉ dấu câu)
+        meaningful_text = ''.join(c for c in text if c.isalnum() or c.isspace()).strip()
+        
+        if len(text) < 10 or len(meaningful_text) < 5:
+            raise ValueError(
+                f"Text is too short or contains only punctuation (length: {len(text)}, meaningful: {len(meaningful_text)}). "
+                f"Minimum length: 10 characters with at least 5 meaningful characters. "
+                f"Text: '{text[:50] if text else 'None'}...'"
+            )
+        
         # Standard processing - VietTTS handles chunking internally
         # The batch_chunks parameter is reserved for future optimization
         # Xử lý tiêu chuẩn - VietTTS xử lý chunking nội bộ
         # Tham số batch_chunks được dành cho tối ưu hóa tương lai
-        wav = self.model.tts_to_wav(text, prompt_speech, speed=speed)
+        try:
+            wav = self.model.tts_to_wav(text, prompt_speech, speed=speed)
+        except ValueError as e:
+            # Handle empty array concatenation error
+            # Xử lý lỗi concatenate mảng rỗng
+            if "need at least one array" in str(e).lower() or "concatenate" in str(e).lower():
+                raise ValueError(
+                    f"Text processing resulted in empty chunks. "
+                    f"Text length: {len(text)} chars. "
+                    f"Text preview: {text[:100]}... "
+                    f"Original error: {e}"
+                )
+            raise
+        
+        # Validate output / Xác thực đầu ra
+        if wav is None or len(wav) == 0:
+            raise ValueError(
+                f"Generated audio is empty. "
+                f"Text length: {len(text)} chars. "
+                f"Text preview: {text[:100]}..."
+            )
         
         # Save if output path provided
         if output_path:

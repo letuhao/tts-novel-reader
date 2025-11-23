@@ -4,6 +4,10 @@ Dịch vụ TTS - Dịch vụ backend VietTTS
 """
 from typing import Optional, Literal, TYPE_CHECKING
 import torch
+import asyncio
+import threading
+import queue
+import contextlib
 
 if TYPE_CHECKING:
     from .models.viet_tts import VietTTSWrapper
@@ -47,20 +51,116 @@ def detect_device() -> str:
 # Model types / Loại model
 ModelType = Literal["viet-tts"]
 
+class ModelPool:
+    """Model Pool for concurrent inference / Pool Model cho inference đồng thời"""
+    
+    def __init__(self, pool_size: int = 2, device: str = "cuda"):
+        """
+        Initialize model pool / Khởi tạo pool model
+        
+        Args:
+            pool_size: Number of model instances in pool / Số lượng instance model trong pool
+            device: Device to use (cuda/cpu) / Thiết bị sử dụng
+        """
+        self.pool_size = pool_size
+        self.device = device
+        self.pool = queue.Queue(maxsize=pool_size)
+        self._lock = threading.Lock()
+        self._initialized = False
+        
+    def _initialize_pool(self):
+        """Initialize model instances in pool / Khởi tạo các instance model trong pool"""
+        if self._initialized:
+            return
+            
+        with self._lock:
+            if self._initialized:
+                return
+                
+            print(f"🔄 Creating Model Pool with {self.pool_size} instances...")
+            print(f"🔄 Đang tạo Model Pool với {self.pool_size} instances...")
+            
+            for i in range(self.pool_size):
+                print(f"   Loading model instance {i+1}/{self.pool_size}...")
+                print(f"   Đang tải model instance {i+1}/{self.pool_size}...")
+                from .models.viet_tts import VietTTSWrapper
+                model = VietTTSWrapper(device=self.device)
+                
+                # Warmup if CUDA
+                if self.device == "cuda":
+                    print(f"   Warming up instance {i+1}/{self.pool_size}...")
+                    print(f"   Đang làm nóng instance {i+1}/{self.pool_size}...")
+                    try:
+                        model.warmup()
+                    except Exception as e:
+                        print(f"   ⚠️  Warmup failed for instance {i+1} (non-critical): {e}")
+                
+                self.pool.put(model)
+                print(f"   ✅ Instance {i+1}/{self.pool_size} ready")
+                print(f"   ✅ Instance {i+1}/{self.pool_size} sẵn sàng")
+            
+            self._initialized = True
+            print(f"✅ Model Pool initialized with {self.pool_size} instances")
+            print(f"✅ Model Pool đã được khởi tạo với {self.pool_size} instances")
+    
+    @contextlib.contextmanager
+    def get_model(self):
+        """
+        Get a model from pool (context manager) / Lấy một model từ pool (context manager)
+        
+        Usage / Cách dùng:
+            with pool.get_model() as model:
+                result = model.synthesize(...)
+        """
+        self._initialize_pool()  # Initialize on first use / Khởi tạo khi dùng lần đầu
+        
+        # Get model from pool (blocks if pool is empty)
+        # Lấy model từ pool (block nếu pool trống)
+        model = self.pool.get()
+        
+        try:
+            yield model
+        finally:
+            # Return model to pool
+            # Trả model về pool
+            self.pool.put(model)
+    
+    def get_pool_size(self) -> int:
+        """Get pool size / Lấy kích thước pool"""
+        return self.pool_size
+
+
 class TTSService:
     """Unified TTS service / Dịch vụ TTS thống nhất"""
     
-    def __init__(self, default_model: ModelType = "viet-tts", preload_default: bool = True):
+    def __init__(self, default_model: ModelType = "viet-tts", preload_default: bool = True, use_model_pool: bool = True, model_pool_size: int = 2):
         """
         Initialize TTS service / Khởi tạo dịch vụ TTS
         
         Args:
             default_model: Default model to use / Model mặc định sử dụng
             preload_default: Whether to preload default model at startup / Có tải trước model mặc định khi khởi động không
+            use_model_pool: Use model pool for concurrent inference / Sử dụng model pool cho inference đồng thời
+            model_pool_size: Number of model instances in pool / Số lượng instance model trong pool
         """
         self.default_model = default_model
         self.viet_tts = None
         self.device = detect_device()
+        self.use_model_pool = use_model_pool and self.device == "cuda"  # Only use pool for GPU
+        self.model_pool_size = model_pool_size
+        
+        # Model pool for concurrent inference / Pool model cho inference đồng thời
+        if self.use_model_pool:
+            self.model_pool = ModelPool(pool_size=model_pool_size, device=self.device)
+            print(f"✅ Using Model Pool with {model_pool_size} instances for concurrent inference")
+            print(f"✅ Sử dụng Model Pool với {model_pool_size} instances cho inference đồng thời")
+        else:
+            self.model_pool = None
+            # Thread lock for single model instance (fallback)
+            # Khóa thread cho instance model đơn (dự phòng)
+            self._inference_lock = threading.Lock()
+            print(f"⚠️  Using single model instance with lock (sequential processing)")
+            print(f"⚠️  Sử dụng instance model đơn với lock (xử lý tuần tự)")
         print(f"Initializing TTS Service on device: {self.device}")
         print(f"Khởi tạo Dịch vụ TTS trên thiết bị: {self.device}")
         
@@ -88,9 +188,9 @@ class TTSService:
         print(f"Default model: {default_model}")
         print(f"Model mặc định: {default_model}")
         
-        # Preload default model at startup to avoid loading delay on first request
-        # Tải trước model mặc định khi khởi động để tránh độ trễ tải ở request đầu tiên
-        if preload_default:
+        # Preload default model at startup (only if not using pool, pool initializes lazily)
+        # Tải trước model mặc định khi khởi động (chỉ nếu không dùng pool, pool khởi tạo lazy)
+        if preload_default and not self.use_model_pool:
             print(f"Preloading default model: {default_model}...")
             print(f"Đang tải trước model mặc định: {default_model}...")
             try:
@@ -111,6 +211,9 @@ class TTSService:
                 traceback.print_exc()
             print("✅ Default model ready")
             print("✅ Model mặc định đã sẵn sàng")
+        elif self.use_model_pool:
+            print(f"ℹ️  Model Pool will initialize lazily on first request (faster startup)")
+            print(f"ℹ️  Model Pool sẽ khởi tạo lazy ở request đầu tiên (khởi động nhanh hơn)")
     
     def get_viet_tts(self):
         """Get or load VietTTS model / Lấy hoặc tải model VietTTS"""
@@ -134,6 +237,9 @@ class TTSService:
         """
         Synthesize speech using specified model / Tổng hợp giọng nói sử dụng model chỉ định
         
+        NOTE: This method supports concurrent inference via Model Pool (if enabled).
+        LƯU Ý: Method này hỗ trợ inference đồng thời qua Model Pool (nếu được bật).
+        
         Args:
             text: Input text / Văn bản đầu vào
             model: Model to use (viet-tts) / Model sử dụng
@@ -147,18 +253,34 @@ class TTSService:
         """
         model = model or self.default_model
         
-        if model == "viet-tts":
-            viet_tts = self.get_viet_tts()
-            return viet_tts.synthesize(
-                text=text,
-                voice=voice,
-                voice_file=voice_file,
-                speed=speed,
-                batch_chunks=batch_chunks,
-                **kwargs
-            )
-        else:
+        if model != "viet-tts":
             raise ValueError(f"Unknown model: {model}")
+        
+        # Use Model Pool for concurrent inference (if enabled)
+        # Sử dụng Model Pool cho inference đồng thời (nếu được bật)
+        if self.use_model_pool and self.model_pool:
+            with self.model_pool.get_model() as viet_tts:
+                return viet_tts.synthesize(
+                    text=text,
+                    voice=voice,
+                    voice_file=voice_file,
+                    speed=speed,
+                    batch_chunks=batch_chunks,
+                    **kwargs
+                )
+        else:
+            # Fallback: Use single model instance with lock (sequential processing)
+            # Dự phòng: Sử dụng instance model đơn với lock (xử lý tuần tự)
+            with self._inference_lock:
+                viet_tts = self.get_viet_tts()
+                return viet_tts.synthesize(
+                    text=text,
+                    voice=voice,
+                    voice_file=voice_file,
+                    speed=speed,
+                    batch_chunks=batch_chunks,
+                    **kwargs
+                )
     
     def get_model_info(self, model: ModelType) -> dict:
         """

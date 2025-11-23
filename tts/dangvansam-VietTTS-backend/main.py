@@ -114,6 +114,9 @@ if __name__ == "__main__":
         port=11111,
         reload=False,  # Disable reload for background running
         log_level=uvicorn_log_level,
-        access_log=False  # Disable access logs for silent mode
+        access_log=False,  # Disable access logs for silent mode
+        workers=1,  # Single worker to avoid model duplication (GPU memory)
+        limit_concurrency=50,  # Allow up to 50 concurrent requests
+        timeout_keep_alive=120  # Keep connections alive for 2 minutes
     )
 

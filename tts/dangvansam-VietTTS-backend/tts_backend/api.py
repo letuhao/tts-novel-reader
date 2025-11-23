@@ -91,11 +91,13 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
     - Returns file ID and metadata for storage management
     - Supports expiration time management
     - Optional audio streaming
+    - Non-blocking async processing for better GPU utilization
     
     Tối ưu cho sử dụng microservice:
     - Trả về ID file và metadata để quản lý lưu trữ
     - Hỗ trợ quản lý thời gian hết hạn
     - Tùy chọn streaming audio
+    - Xử lý async không chặn để sử dụng GPU tốt hơn
     
     Args:
         request: TTS synthesis request / Yêu cầu tổng hợp TTS
@@ -104,6 +106,27 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
         Response with file info and optional audio / Phản hồi với thông tin file và audio tùy chọn
     """
     try:
+        # Validate text input / Xác thực input văn bản
+        text = request.text.strip() if request.text else ""
+        
+        # Check if text exists and is meaningful
+        # Kiểm tra text có tồn tại và có nghĩa không
+        if not text or len(text) == 0:
+            raise ValueError(
+                f"Text is empty. Cannot generate audio from empty text."
+            )
+        
+        # Check for meaningful content (at least 10 characters, not just punctuation)
+        # Kiểm tra nội dung có nghĩa (ít nhất 10 ký tự, không chỉ dấu câu)
+        meaningful_text = ''.join(c for c in text if c.isalnum() or c.isspace()).strip()
+        
+        if len(text) < 10 or len(meaningful_text) < 5:
+            raise ValueError(
+                f"Text is too short or contains only punctuation (length: {len(text)}, meaningful: {len(meaningful_text)}). "
+                f"Minimum length: 10 characters with at least 5 meaningful characters. "
+                f"Text preview: '{text[:50]}...'"
+            )
+        
         service = get_service()
         storage = get_storage()
         
@@ -113,21 +136,52 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
         # Determine voice name for storage
         voice_name = request.voice or request.voice_file or "default"
         
-        # Generate audio / Tạo audio
-        audio = service.synthesize(
-            text=request.text,
-            model=request.model,
-            voice=request.voice,
-            voice_file=request.voice_file,
-            speed=request.speed or 1.0,
-            batch_chunks=request.batch_chunks
+        # Run synthesis in executor to avoid blocking event loop / Chạy synthesis trong executor để tránh chặn event loop
+        # This allows FastAPI to handle multiple requests concurrently / Điều này cho phép FastAPI xử lý nhiều request đồng thời
+        import asyncio
+        from functools import partial
+        
+        # Create a proper function for executor instead of lambda (better error handling)
+        # Tạo một function đúng cho executor thay vì lambda (xử lý lỗi tốt hơn)
+        def _synthesize_wrapper(svc, txt, mdl, vc, vc_file, spd, batch_ch):
+            """Wrapper function for executor to avoid lambda closure issues"""
+            try:
+                return svc.synthesize(
+                    text=txt,
+                    model=mdl,
+                    voice=vc,
+                    voice_file=vc_file,
+                    speed=spd,
+                    batch_chunks=batch_ch
+                )
+            except Exception as e:
+                # Log error before re-raising
+                print(f"❌ Error in synthesize_wrapper: {repr(e)}")
+                traceback.print_exc()
+                raise
+        
+        loop = asyncio.get_event_loop()
+        
+        # Generate audio / Tạo audio (non-blocking)
+        audio = await loop.run_in_executor(
+            None,  # Use default executor (ThreadPoolExecutor)
+            partial(
+                _synthesize_wrapper,
+                service,
+                request.text,
+                request.model,
+                request.voice,
+                request.voice_file,
+                request.speed or 1.0,
+                request.batch_chunks
+            )
         )
         
         # Get sample rate / Lấy tần số lấy mẫu
         model_info = service.get_model_info(request.model)
         sample_rate = model_info["sample_rate"]
         
-        # Convert to bytes / Chuyển đổi sang bytes
+        # Convert to bytes / Chuyển đổi sang bytes (also run in executor if needed)
         audio_buffer = io.BytesIO()
         sf.write(audio_buffer, audio, sample_rate, format="WAV")
         audio_data = audio_buffer.getvalue()

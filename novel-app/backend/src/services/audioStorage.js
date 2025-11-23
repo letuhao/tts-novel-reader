@@ -161,9 +161,9 @@ export class AudioStorageService {
     const {
       speakerId = '05',
       ttsExpiryHours = 2,  // TTS backend cache: 2 hours (short-term temporary storage)
-      model = 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
-      // VieNeu-TTS specific options / Tùy chọn riêng VieNeu-TTS
-      voice = 'id_0004',  // Default female voice / Mặc định giọng nữ
+      model = 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
+      // VietTTS specific options / Tùy chọn riêng VietTTS
+      voice = 'quynh',  // Default voice (fallback) / Giọng mặc định (dự phòng)
       autoVoice = false,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
       autoChunk = true,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài
       maxChars = 256,  // Max chars per chunk / Ký tự tối đa mỗi chunk
@@ -180,7 +180,33 @@ export class AudioStorageService {
     
     // Normalize text for TTS (convert system notifications to natural dialogue)
     // Chuẩn hóa văn bản cho TTS (chuyển đổi thông báo hệ thống sang hội thoại tự nhiên)
-    const normalizedText = normalizeTextForTTS(text);
+    let normalizedText = normalizeTextForTTS(text);
+    
+    // Validate normalized text - ensure it's not empty
+    // Xác thực văn bản đã chuẩn hóa - đảm bảo không rỗng
+    if (!normalizedText || typeof normalizedText !== 'string' || normalizedText.trim().length === 0) {
+      const errorMsg = `Normalized text is empty. Original text length: ${text?.length || 0} chars.`;
+      console.error(`[AudioStorage] ❌ ${errorMsg}`);
+      throw new Error(`Cannot generate audio: ${errorMsg}`);
+    }
+    
+    // Ensure minimum text length for VietTTS (at least 10 characters for proper processing)
+    // Đảm bảo độ dài văn bản tối thiểu cho VietTTS (ít nhất 10 ký tự để xử lý đúng)
+    const trimmedText = normalizedText.trim();
+    if (trimmedText.length < 10) {
+      // For very short text, use a meaningful fallback instead of just padding
+      // Với text quá ngắn, sử dụng fallback có nghĩa thay vì chỉ thêm padding
+      if (trimmedText.length === 0 || trimmedText === '.' || trimmedText === '...') {
+        // Skip completely empty or meaningless text
+        // Bỏ qua text hoàn toàn rỗng hoặc không có nghĩa
+        console.warn(`[AudioStorage] ⚠️ Skipping meaningless text: "${trimmedText}"`);
+        throw new Error(`Text is too short or meaningless after normalization (length: ${trimmedText.length}). Skipping paragraph.`);
+      }
+      // For short but meaningful text, add a context sentence
+      // Với text ngắn nhưng có nghĩa, thêm một câu ngữ cảnh
+      normalizedText = trimmedText + '. Đây là một đoạn văn ngắn.';
+      console.warn(`[AudioStorage] ⚠️ Text too short (${trimmedText.length} chars), added context: "${normalizedText}"`);
+    }
     
     console.log(`[AudioStorage] ==========================================`);
     console.log(`[AudioStorage] Starting generateAndStore for paragraph ${paragraphNumber}`);
@@ -282,9 +308,16 @@ export class AudioStorageService {
           console.log(`[AudioStorage] Step 3.5: Cleaning up TTS backend cache...`);
           console.log(`[AudioStorage] Bước 3.5: Đang dọn dẹp cache TTS backend...`);
           try {
-            await this.ttsService.deleteAudio(audioMetadata.fileId);
-            console.log(`[AudioStorage] ✅ Step 3.5: TTS cache cleaned up successfully!`);
-            console.log(`[AudioStorage] ✅ Bước 3.5: Cache TTS đã được dọn dẹp thành công!`);
+            const deleted = await this.ttsService.deleteAudio(audioMetadata.fileId);
+            if (deleted) {
+              console.log(`[AudioStorage] ✅ Step 3.5: TTS cache cleaned up successfully!`);
+              console.log(`[AudioStorage] ✅ Bước 3.5: Cache TTS đã được dọn dẹp thành công!`);
+            } else {
+              // DELETE not supported or file not found - this is OK, file will expire naturally
+              // DELETE không được hỗ trợ hoặc file không tìm thấy - điều này ổn, file sẽ tự động hết hạn
+              console.log(`[AudioStorage] ℹ️ Step 3.5: TTS cache cleanup not needed (file will expire naturally)`);
+              console.log(`[AudioStorage] ℹ️ Bước 3.5: Không cần dọn dẹp cache TTS (file sẽ tự động hết hạn)`);
+            }
           } catch (cleanupError) {
             // Non-critical: Cache will expire naturally in 2 hours anyway
             // Không quan trọng: Cache sẽ tự động hết hạn sau 2 giờ

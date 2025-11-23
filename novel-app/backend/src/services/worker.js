@@ -11,18 +11,32 @@ import { ChapterModel } from '../models/Chapter.js';
 import { ParagraphModel } from '../models/Paragraph.js';
 import { GenerationProgressModel } from '../models/GenerationProgress.js';
 import { AudioCacheModel } from '../models/AudioCache.js';
+import { getVoiceMapping } from '../utils/voiceMapping.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export class AudioWorker {
   constructor(options = {}) {
     this.audioStorage = getAudioStorage();
-    this.batchSize = options.batchSize || 1; // Process N items at a time
+    this.batchSize = options.batchSize || 1; // Process N items at a time (deprecated, use parallelChapters instead)
     this.delayBetweenBatches = options.delayBetweenBatches || 11110; // ms - Increased for slower processing (50% slower)
     this.delayBetweenItems = options.delayBetweenItems || 2000; // ms - Delay between individual items
+    // Parallel processing for paragraphs to better utilize GPU
+    // Xử lý song song cho paragraphs để sử dụng GPU tốt hơn
+    this.parallelParagraphs = options.parallelParagraphs || 1; // Process N paragraphs concurrently (default: 1 for testing Model Pool)
+    // Parallel processing for chapters to maximize GPU utilization
+    // Xử lý song song cho chapters để tối đa hóa sử dụng GPU
+    this.parallelChapters = options.parallelChapters || 2; // Process N chapters concurrently (default: 2)
+    // Total concurrent jobs = parallelParagraphs × parallelChapters = 1 × 2 = 2 jobs at same time (testing Model Pool)
+    // Tổng số jobs đồng thời = parallelParagraphs × parallelChapters = 1 × 2 = 2 jobs cùng lúc (test Model Pool)
     this.maxRetries = options.maxRetries || 3;
-           this.speakerId = options.speakerId || '05';
-           this.expiryHours = options.expiryHours || 365 * 24;
-           this.speedFactor = options.speedFactor || 1.0;  // Normal speed (matches preset)
+    this.speakerId = options.speakerId || '05';
+    this.expiryHours = options.expiryHours || 365 * 24;
+    this.speedFactor = options.speedFactor || 1.0;  // Normal speed (matches preset)
+    // VietTTS options / Tùy chọn VietTTS
+    this.voice = options.voice || 'quynh';  // Default voice (fallback if no role detected)
+    this.autoVoice = options.autoVoice || false;
+    this.autoChunk = options.autoChunk !== false; // Default true
+    this.maxChars = options.maxChars || 256;
   }
 
   /**
@@ -83,15 +97,83 @@ export class AudioWorker {
       
       console.log(`Generating audio for chapter ${chapterNumber} with ${totalParagraphs} paragraphs (processing ${paragraphsToProcess})...`);
       console.log(`Tạo audio cho chapter ${chapterNumber} với ${totalParagraphs} paragraphs (đang xử lý ${paragraphsToProcess})...`);
+      console.log(`[Worker] ⚡ Using parallel processing: ${this.parallelParagraphs} paragraphs concurrently`);
+      console.log(`[Worker] ⚡ Sử dụng xử lý song song: ${this.parallelParagraphs} paragraphs đồng thời`);
 
+      // First, check cache and filter paragraphs that need processing
+      // Đầu tiên, kiểm tra cache và lọc các paragraphs cần xử lý
+      const paragraphsToGenerate = [];
+      
       for (let i = 0; i < paragraphsToProcess; i++) {
         const paragraph = chapter.paragraphs[i];
         const paragraphText = paragraph.text?.trim();
         
         // Skip empty paragraphs
         if (!paragraphText || paragraphText.length === 0) {
-          console.log(`Skipping empty paragraph ${i} in chapter ${chapterNumber}`);
+          console.log(`[Worker] Skipping empty paragraph ${i} in chapter ${chapterNumber}`);
           continue;
+        }
+
+        // Check cache if not forcing regeneration
+        if (!forceRegenerate) {
+          try {
+            const existingAudio = await AudioCacheModel.getByParagraph(
+              novelId,
+              chapter.id,
+              paragraph.id,
+              speakerId
+            );
+            
+            if (existingAudio) {
+              const expiresAt = new Date(existingAudio.expires_at);
+              const isValid = expiresAt > new Date();
+              
+              if (isValid) {
+                // Check if physical file exists
+                let fileExists = false;
+                if (existingAudio.local_audio_path) {
+                  try {
+                    const fs = await import('fs/promises');
+                    const stats = await fs.stat(existingAudio.local_audio_path);
+                    fileExists = stats.isFile() && stats.size > 0;
+                  } catch (e) {
+                    fileExists = false;
+                  }
+                }
+                
+                if (fileExists) {
+                  console.log(`[Worker] ⏭️ Skipping paragraph ${paragraph.paragraphNumber} - Audio already exists`);
+                  paragraphResults.push({
+                    success: true,
+                    cached: true,
+                    skipped: true,
+                    paragraphNumber: paragraph.paragraphNumber,
+                    paragraphId: paragraph.id,
+                    fileId: existingAudio.tts_file_id,
+                    audioURL: this.audioStorage.getAudioURL(existingAudio.tts_file_id),
+                    localAudioPath: existingAudio.local_audio_path,
+                    text: paragraphText.substring(0, 50) + '...'
+                  });
+                  continue; // Skip generation, use cached
+                }
+              }
+            }
+          } catch (checkError) {
+            console.warn(`[Worker] ⚠️ Error checking cache: ${checkError.message}`);
+          }
+        }
+
+        // Add to processing queue
+        paragraphsToGenerate.push({ paragraph, index: i });
+      }
+
+      // Helper function to process a single paragraph
+      // Hàm helper để xử lý một paragraph
+      const processParagraph = async (paragraph, index) => {
+        const paragraphText = paragraph.text?.trim();
+        
+        if (!paragraphText || paragraphText.length === 0) {
+          return { success: true, cached: true, skipped: true, paragraphNumber: paragraph.paragraphNumber };
         }
 
         try {
@@ -127,9 +209,8 @@ export class AudioWorker {
                 }
                 
                 if (fileExists) {
-                  console.log(`[Worker] ⏭️ Skipping paragraph ${paragraph.paragraphNumber} - Audio already exists`);
-                  console.log(`[Worker] ⏭️ Bỏ qua paragraph ${paragraph.paragraphNumber} - Audio đã tồn tại`);
-                  paragraphResults.push({
+                  // File already exists, skip generation
+                  return {
                     success: true,
                     cached: true,
                     skipped: true,
@@ -139,13 +220,8 @@ export class AudioWorker {
                     audioURL: this.audioStorage.getAudioURL(existingAudio.tts_file_id),
                     localAudioPath: existingAudio.local_audio_path,
                     text: paragraphText.substring(0, 50) + '...'
-                  });
-                  continue; // Skip generation, use cached
-                } else {
-                  console.log(`[Worker] ⚠️ Database entry exists but file missing, will regenerate paragraph ${paragraph.paragraphNumber}`);
+                  };
                 }
-              } else {
-                console.log(`[Worker] ⚠️ Audio expired for paragraph ${paragraph.paragraphNumber}, will regenerate`);
               }
             }
           }
@@ -162,7 +238,7 @@ export class AudioWorker {
               paragraphNumber: paragraph.paragraphNumber,
               status: 'in_progress',
               speakerId: speakerId,
-              model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
+              model: 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
               progressPercent: 0,
               startedAt: new Date().toISOString()
             });
@@ -188,6 +264,28 @@ export class AudioWorker {
           const novelTitle = novel.title || null;
           const chapterTitle = chapter.title || null;
           
+          // Determine voice based on paragraph role/voiceId
+          // Xác định giọng dựa trên vai diễn/voiceId của paragraph
+          let selectedVoice = 'quynh';  // Default fallback voice / Giọng mặc định
+          
+          if (paragraph.voiceId) {
+            // Use voice from role detection / Sử dụng giọng từ role detection
+            selectedVoice = paragraph.voiceId;
+            console.log(`[Worker] Using detected voice: ${selectedVoice} (from role detection)`);
+            console.log(`[Worker] Sử dụng giọng đã phát hiện: ${selectedVoice} (từ role detection)`);
+          } else if (paragraph.role) {
+            // Use voice mapping based on role / Sử dụng voice mapping dựa trên vai diễn
+            const voiceMapping = getVoiceMapping();
+            selectedVoice = voiceMapping.getVoiceForRole(paragraph.role);
+            console.log(`[Worker] Using mapped voice: ${selectedVoice} (role: ${paragraph.role})`);
+            console.log(`[Worker] Sử dụng giọng đã map: ${selectedVoice} (vai diễn: ${paragraph.role})`);
+          } else {
+            // Fallback to default 'quynh' if no role detected / Dùng mặc định 'quynh' nếu chưa phát hiện vai diễn
+            selectedVoice = 'quynh';
+            console.log(`[Worker] No role detected, using fallback voice: ${selectedVoice}`);
+            console.log(`[Worker] Chưa phát hiện vai diễn, dùng giọng mặc định: ${selectedVoice}`);
+          }
+          
           const audioMetadata = await this.audioStorage.generateAndStore(
             paragraphText,
             novelId,
@@ -196,19 +294,19 @@ export class AudioWorker {
             {
               speakerId: speakerId,
               ttsExpiryHours: 2,  // TTS backend cache: 2 hours (short-term temporary storage)
-              model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
-              // VieNeu-TTS parameters / Tham số VieNeu-TTS
-              voice: this.voice,  // Voice selection (default: id_0004 - female) / Lựa chọn giọng (mặc định: id_0004 - nữ)
-              autoVoice: this.autoVoice,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
-              autoChunk: this.autoChunk,  // Auto-chunk long text (default: true) / Tự động chia nhỏ văn bản dài (mặc định: true)
-              maxChars: this.maxChars,  // Max chars per chunk (default: 256) / Ký tự tối đa mỗi chunk (mặc định: 256)
-              // Dia parameters (only used if model is 'dia') / Tham số Dia (chỉ dùng nếu model là 'dia')
-              speedFactor: this.speedFactor,  // Normal speed (1.0) to match preset
+              model: 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
+              // VietTTS parameters / Tham số VietTTS
+              voice: selectedVoice,  // Use selected voice based on role / Sử dụng giọng đã chọn dựa trên vai diễn
+              speedFactor: this.speedFactor,  // Speed factor (1.0 = normal) / Hệ số tốc độ (1.0 = bình thường)
+              // Legacy VieNeu-TTS parameters (not used by VietTTS but kept for compatibility)
+              autoVoice: this.autoVoice,
+              autoChunk: this.autoChunk,
+              maxChars: this.maxChars,
               deleteFromTTSAfterDownload: true,  // Clean up TTS cache after download
               chapterTitle: chapterTitle,  // Include chapter title for better organization
               novelTitle: novelTitle,       // Include novel title for better organization
               paragraphId: paragraph.id,    // Include paragraph database ID
-              paragraphIndex: i,            // Include paragraph index in chapter (for navigation)
+              paragraphIndex: index,        // Include paragraph index in chapter (for navigation)
               totalParagraphsInChapter: chapter.paragraphs.length,  // Total paragraphs for progress (e.g., "5 of 112")
               forceRegenerate: forceRegenerate  // Pass forceRegenerate flag to skip existing audio check
             }
@@ -230,7 +328,7 @@ export class AudioWorker {
             ttsFileId: audioMetadata.fileId,
             speakerId: speakerId,
             expiresAt: audioMetadata.expiresAt,
-            model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
+            model: 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
             localAudioPath: audioMetadata.localAudioPath || null,
             audioDuration: audioMetadata.audioDuration || null,
             audioFileSize: audioMetadata.audioFileSize || null
@@ -253,7 +351,7 @@ export class AudioWorker {
             }
           }
 
-          paragraphResults.push({
+          return {
             success: true,
             cached: false,
             paragraphNumber: paragraph.paragraphNumber,
@@ -261,32 +359,45 @@ export class AudioWorker {
             fileId: audioMetadata.fileId,
             audioURL: audioMetadata.audioURL,
             text: paragraphText.substring(0, 50) + '...'
-          });
-
-          // Small delay between paragraphs to avoid overloading TTS backend
-          // Only delay if not the last paragraph being processed
-          if (i < paragraphsToProcess - 1) {
-            await new Promise(resolve => setTimeout(resolve, this.delayBetweenItems / 2));
-          }
+          };
         } catch (error) {
+          // Check if it's a "skip" error (meaningless text)
+          // Kiểm tra xem có phải lỗi "skip" (text không có nghĩa) không
+          const isSkipError = error.message && (
+            error.message.includes('Skipping paragraph') ||
+            error.message.includes('meaningless') ||
+            error.message.includes('too short or meaningless')
+          );
+          
+          if (isSkipError) {
+            console.warn(`[Worker] ⚠️ Skipping paragraph ${paragraph.paragraphNumber}: ${error.message}`);
+            console.warn(`[Worker] ⚠️ Bỏ qua paragraph ${paragraph.paragraphNumber}: ${error.message}`);
+            
+            // Return success with skip flag so generation can continue
+            // Trả về thành công với cờ skip để generation có thể tiếp tục
+            return {
+              success: true,
+              skipped: true,
+              paragraphNumber: paragraph.paragraphNumber,
+              paragraphId: paragraph.id,
+              reason: error.message
+            };
+          }
+          
           console.error(`[Worker] ❌ Error generating audio for paragraph ${paragraph.paragraphNumber}: ${error.message}`);
           console.error(`[Worker] ❌ Lỗi tạo audio cho paragraph ${paragraph.paragraphNumber}: ${error.message}`);
           
           // Update generation progress - Mark as failed
-          // Cập nhật tiến độ tạo - Đánh dấu thất bại
           if (progressId) {
             try {
               await GenerationProgressModel.update(progressId, {
                 status: 'failed',
                 errorMessage: error.message
               });
-              console.log(`[Worker] ⚠️ Generation progress marked as failed`);
-              console.log(`[Worker] ⚠️ Tiến độ tạo được đánh dấu thất bại`);
             } catch (progressError) {
               console.warn(`[Worker] ⚠️ Failed to update progress: ${progressError.message}`);
             }
           } else {
-            // Create progress entry for failed generation
             try {
               await GenerationProgressModel.createOrUpdate({
                 novelId: novelId,
@@ -296,7 +407,7 @@ export class AudioWorker {
                 paragraphNumber: paragraph.paragraphNumber,
                 status: 'failed',
                 speakerId: speakerId,
-                model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
+                model: 'viettts',
                 errorMessage: error.message
               });
             } catch (progressError) {
@@ -304,12 +415,46 @@ export class AudioWorker {
             }
           }
           
-          errors.push({
+          return {
+            success: false,
             paragraphNumber: paragraph.paragraphNumber,
             paragraphId: paragraph.id,
             error: error.message
-          });
-          // Continue with next paragraph instead of failing entire chapter
+          };
+        }
+      };
+
+      // Process paragraphs in parallel batches
+      // Xử lý paragraphs theo batch song song
+      const parallelLimit = this.parallelParagraphs;
+      for (let i = 0; i < paragraphsToGenerate.length; i += parallelLimit) {
+        const batch = paragraphsToGenerate.slice(i, i + parallelLimit);
+        const batchNum = Math.floor(i / parallelLimit) + 1;
+        const totalBatches = Math.ceil(paragraphsToGenerate.length / parallelLimit);
+        
+        console.log(`[Worker] 🔄 Processing batch ${batchNum}/${totalBatches}: paragraphs ${batch[0].paragraph.paragraphNumber} to ${batch[batch.length - 1].paragraph.paragraphNumber}`);
+        console.log(`[Worker] 🔄 Xử lý batch ${batchNum}/${totalBatches}: paragraphs ${batch[0].paragraph.paragraphNumber} đến ${batch[batch.length - 1].paragraph.paragraphNumber}`);
+        
+        // Process batch in parallel
+        const batchPromises = batch.map(({ paragraph, index }) => processParagraph(paragraph, index));
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Collect results
+        for (const result of batchResults) {
+          if (result.success) {
+            paragraphResults.push(result);
+          } else {
+            errors.push({
+              paragraphNumber: result.paragraphNumber,
+              paragraphId: result.paragraphId,
+              error: result.error
+            });
+          }
+        }
+        
+        // Small delay between batches to avoid overloading TTS backend
+        if (i + parallelLimit < paragraphsToGenerate.length) {
+          await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between batches
         }
       }
 
@@ -366,21 +511,41 @@ export class AudioWorker {
   async generateBatchAudio(novelId, chapterNumbers, options = {}) {
     const results = [];
     const total = chapterNumbers.length;
+    
+    // Use parallel chapters for better GPU utilization
+    // Sử dụng chapters song song để sử dụng GPU tốt hơn
+    const parallelChapters = options.parallelChapters || this.parallelChapters || 2;
+    
+    console.log(`[Worker] 📚 Processing ${total} chapters with ${parallelChapters} parallel chapters`);
+    console.log(`[Worker] 📚 Xử lý ${total} chapters với ${parallelChapters} chapters song song`);
 
-    for (let i = 0; i < chapterNumbers.length; i += this.batchSize) {
-      const batch = chapterNumbers.slice(i, i + this.batchSize);
+    // Process chapters in parallel batches
+    // Xử lý chapters theo batch song song
+    for (let i = 0; i < chapterNumbers.length; i += parallelChapters) {
+      const batch = chapterNumbers.slice(i, i + parallelChapters);
+      const batchNum = Math.floor(i / parallelChapters) + 1;
+      const totalBatches = Math.ceil(chapterNumbers.length / parallelChapters);
       
-      // Process items sequentially with delay for slower processing (50% slower)
-      const batchResults = [];
-      for (const chapterNumber of batch) {
-        const result = await this.generateChapterAudio(novelId, chapterNumber, options);
-        batchResults.push(result);
-        
-        // Delay between individual items (except for last item in batch)
-        if (chapterNumber !== batch[batch.length - 1]) {
-          await new Promise(resolve => setTimeout(resolve, this.delayBetweenItems));
-        }
-      }
+      console.log(`[Worker] 📖 Processing chapter batch ${batchNum}/${totalBatches}: chapters ${batch.join(', ')}`);
+      console.log(`[Worker] 📖 Xử lý batch chapters ${batchNum}/${totalBatches}: chapters ${batch.join(', ')}`);
+      
+      // Process chapters in parallel
+      // Xử lý chapters song song
+      const batchPromises = batch.map(chapterNumber => 
+        this.generateChapterAudio(novelId, chapterNumber, options)
+          .catch(error => {
+            // Return error result instead of throwing
+            // Trả về kết quả lỗi thay vì throw
+            console.error(`[Worker] ❌ Error processing chapter ${chapterNumber}: ${error.message}`);
+            return {
+              success: false,
+              chapterNumber: chapterNumber,
+              error: error.message
+            };
+          })
+      );
+      
+      const batchResults = await Promise.all(batchPromises);
 
       results.push(...batchResults);
 
