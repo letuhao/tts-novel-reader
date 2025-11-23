@@ -26,9 +26,9 @@ router.post('/generate/chapter', async (req, res, next) => {
       autoChunk = true,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài
       maxChars = 256,  // Max chars per chunk / Ký tự tối đa mỗi chunk
       // Worker options for parallel processing
-      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 1 for testing)
-      parallelChapters = 2, // Process N chapters concurrently (default: 2)
-      // Total: 1 paragraph × 2 chapters = 2 concurrent jobs (testing Model Pool)
+      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 1)
+      parallelChapters = 1, // Process N chapters concurrently (default: 1)
+      // Total: 1 paragraph × 1 chapter = 1 concurrent job (sequential processing)
       delayBetweenBatches = 11110, // 3 seconds between batches (50% slower)
       delayBetweenItems = 2000 // 2 seconds between items
     } = req.body;
@@ -150,9 +150,9 @@ router.post('/generate/batch', async (req, res, next) => {
     }
 
     const {
-      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 2)
-      parallelChapters = 2, // Process N chapters concurrently (default: 2)
-      // Total: 2 paragraphs × 2 chapters = 4 concurrent jobs
+      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 1)
+      parallelChapters = 1, // Process N chapters concurrently (default: 1)
+      // Total: 1 paragraph × 1 chapter = 1 concurrent job (sequential processing)
       delayBetweenBatches = 11110,
       delayBetweenItems = 2000
     } = req.body;
@@ -276,9 +276,9 @@ router.post('/generate/all', async (req, res, next) => {
     }
 
     const {
-      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 2)
-      parallelChapters = 2, // Process N chapters concurrently (default: 2)
-      // Total: 2 paragraphs × 2 chapters = 4 concurrent jobs
+      parallelParagraphs = 1, // Process N paragraphs concurrently (default: 1)
+      parallelChapters = 1, // Process N chapters concurrently (default: 1)
+      // Total: 1 paragraph × 1 chapter = 1 concurrent job (sequential processing)
       delayBetweenBatches = 11110,
       delayBetweenItems = 2000
     } = req.body;

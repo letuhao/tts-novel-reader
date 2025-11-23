@@ -9,6 +9,8 @@ import soundfile as sf
 import io
 import numpy as np
 import uuid
+import time
+from datetime import datetime
 import traceback  # For detailed error logging / Để log lỗi chi tiết
 
 from .service import get_service
@@ -82,6 +84,8 @@ async def get_model_info(request: ModelInfoRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Synthesize speech / Tổng hợp giọng nói
+# Direct call - FastAPI will handle sync-to-async conversion efficiently
+# Gọi trực tiếp - FastAPI sẽ xử lý chuyển đổi sync-to-async một cách hiệu quả
 @router.post("/synthesize")
 async def synthesize_speech(request: TTSSynthesizeRequest):
     """
@@ -127,66 +131,71 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
                 f"Text preview: '{text[:50]}...'"
             )
         
+        import time
+        api_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{'='*80}")
+        print(f"[{timestamp}] [API] Starting TTS request - Text length: {len(text)} chars")
+        print(f"[{timestamp}] [API] Bắt đầu TTS request - Độ dài text: {len(text)} ký tự")
+        print(f"{'='*80}")
+        
+        # Step 1: Get service and storage
+        step_start = time.time()
         service = get_service()
         storage = get_storage()
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [API] Step 1 - Service/Storage init: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [API] Bước 1 - Khởi tạo Service/Storage: {step_duration*1000:.2f}ms")
         
-        # Generate request ID for tracking / Tạo request ID để theo dõi
+        # Step 2: Generate request ID
+        step_start = time.time()
         request_id = str(uuid.uuid4())
-        
-        # Determine voice name for storage
         voice_name = request.voice or request.voice_file or "default"
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [API] Step 2 - Request ID generation: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [API] Bước 2 - Tạo Request ID: {step_duration*1000:.2f}ms")
         
-        # Run synthesis in executor to avoid blocking event loop / Chạy synthesis trong executor để tránh chặn event loop
-        # This allows FastAPI to handle multiple requests concurrently / Điều này cho phép FastAPI xử lý nhiều request đồng thời
-        import asyncio
-        from functools import partial
-        
-        # Create a proper function for executor instead of lambda (better error handling)
-        # Tạo một function đúng cho executor thay vì lambda (xử lý lỗi tốt hơn)
-        def _synthesize_wrapper(svc, txt, mdl, vc, vc_file, spd, batch_ch):
-            """Wrapper function for executor to avoid lambda closure issues"""
-            try:
-                return svc.synthesize(
-                    text=txt,
-                    model=mdl,
-                    voice=vc,
-                    voice_file=vc_file,
-                    speed=spd,
-                    batch_chunks=batch_ch
-                )
-            except Exception as e:
-                # Log error before re-raising
-                print(f"❌ Error in synthesize_wrapper: {repr(e)}")
-                traceback.print_exc()
-                raise
-        
-        loop = asyncio.get_event_loop()
-        
-        # Generate audio / Tạo audio (non-blocking)
-        audio = await loop.run_in_executor(
-            None,  # Use default executor (ThreadPoolExecutor)
-            partial(
-                _synthesize_wrapper,
-                service,
-                request.text,
-                request.model,
-                request.voice,
-                request.voice_file,
-                request.speed or 1.0,
-                request.batch_chunks
-            )
+        # Step 3: Generate audio (MAIN STEP) / Bước 3: Tạo audio (BƯỚC CHÍNH)
+        step_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [API] Step 3 - Starting audio synthesis...")
+        print(f"[{timestamp}] [API] Bước 3 - Bắt đầu tổng hợp audio...")
+        audio = service.synthesize(
+            text=request.text,
+            model=request.model,
+            voice=request.voice,
+            voice_file=request.voice_file,
+            speed=request.speed or 1.0,
+            batch_chunks=request.batch_chunks
         )
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [API] Step 3 - Audio synthesis completed: {step_duration:.3f}s")
+        print(f"[{timestamp}] [API] Bước 3 - Tổng hợp audio hoàn tất: {step_duration:.3f}s")
         
-        # Get sample rate / Lấy tần số lấy mẫu
+        # Step 4: Get sample rate
+        step_start = time.time()
         model_info = service.get_model_info(request.model)
         sample_rate = model_info["sample_rate"]
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [API] Step 4 - Get model info: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [API] Bước 4 - Lấy thông tin model: {step_duration*1000:.2f}ms")
         
-        # Convert to bytes / Chuyển đổi sang bytes (also run in executor if needed)
+        # Step 5: Convert to bytes
+        step_start = time.time()
         audio_buffer = io.BytesIO()
         sf.write(audio_buffer, audio, sample_rate, format="WAV")
         audio_data = audio_buffer.getvalue()
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [API] Step 5 - Convert to bytes: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [API] Bước 5 - Chuyển đổi sang bytes: {step_duration*1000:.2f}ms")
         
-        # Store audio if requested / Lưu audio nếu được yêu cầu
+        # Step 6: Store audio if requested
+        step_start = time.time()
         file_metadata = None
         if request.store:
             file_metadata = storage.save_audio(
@@ -201,6 +210,26 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
                     "sample_rate": sample_rate
                 }
             )
+        step_duration = time.time() - step_start
+        if request.store:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [API] Step 6 - Save to storage: {step_duration*1000:.2f}ms")
+            print(f"[{timestamp}] [API] Bước 6 - Lưu vào storage: {step_duration*1000:.2f}ms")
+        
+        # API Total duration
+        api_total = time.time() - api_start
+        audio_duration = len(audio) / sample_rate if audio is not None else 0
+        ratio = api_total / audio_duration if audio_duration > 0 else 0
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        print(f"{'='*80}")
+        print(f"[{timestamp}] [API] API TOTAL TIME: {api_total:.3f}s")
+        print(f"[{timestamp}] [API] TỔNG THỜI GIAN API: {api_total:.3f}s")
+        print(f"[{timestamp}] [API] Audio duration: {audio_duration:.3f}s")
+        print(f"[{timestamp}] [API] Độ dài audio: {audio_duration:.3f}s")
+        print(f"[{timestamp}] [API] Speed ratio: {ratio:.2f}x")
+        print(f"[{timestamp}] [API] Tỷ lệ tốc độ: {ratio:.2f}x")
+        print(f"{'='*80}\n")
         
         # Prepare response / Chuẩn bị phản hồi
         response_data = {

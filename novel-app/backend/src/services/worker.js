@@ -22,12 +22,12 @@ export class AudioWorker {
     this.delayBetweenItems = options.delayBetweenItems || 2000; // ms - Delay between individual items
     // Parallel processing for paragraphs to better utilize GPU
     // Xử lý song song cho paragraphs để sử dụng GPU tốt hơn
-    this.parallelParagraphs = options.parallelParagraphs || 1; // Process N paragraphs concurrently (default: 1 for testing Model Pool)
+    this.parallelParagraphs = options.parallelParagraphs || 1; // Process N paragraphs concurrently (default: 1)
     // Parallel processing for chapters to maximize GPU utilization
     // Xử lý song song cho chapters để tối đa hóa sử dụng GPU
-    this.parallelChapters = options.parallelChapters || 2; // Process N chapters concurrently (default: 2)
-    // Total concurrent jobs = parallelParagraphs × parallelChapters = 1 × 2 = 2 jobs at same time (testing Model Pool)
-    // Tổng số jobs đồng thời = parallelParagraphs × parallelChapters = 1 × 2 = 2 jobs cùng lúc (test Model Pool)
+    this.parallelChapters = options.parallelChapters || 1; // Process N chapters concurrently (default: 1)
+    // Total concurrent jobs = parallelParagraphs × parallelChapters = 1 × 1 = 1 job at same time (sequential processing)
+    // Tổng số jobs đồng thời = parallelParagraphs × parallelChapters = 1 × 1 = 1 job cùng lúc (xử lý tuần tự)
     this.maxRetries = options.maxRetries || 3;
     this.speakerId = options.speakerId || '05';
     this.expiryHours = options.expiryHours || 365 * 24;

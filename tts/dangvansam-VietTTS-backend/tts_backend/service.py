@@ -8,6 +8,8 @@ import asyncio
 import threading
 import queue
 import contextlib
+import time
+from datetime import datetime
 
 if TYPE_CHECKING:
     from .models.viet_tts import VietTTSWrapper
@@ -133,7 +135,7 @@ class ModelPool:
 class TTSService:
     """Unified TTS service / Dịch vụ TTS thống nhất"""
     
-    def __init__(self, default_model: ModelType = "viet-tts", preload_default: bool = True, use_model_pool: bool = True, model_pool_size: int = 2):
+    def __init__(self, default_model: ModelType = "viet-tts", preload_default: bool = True, use_model_pool: bool = False, model_pool_size: int = 2):
         """
         Initialize TTS service / Khởi tạo dịch vụ TTS
         
@@ -175,21 +177,32 @@ class TTSService:
         
         try:
             import onnxruntime
-            providers = onnxruntime.get_available_providers()
-            if "CUDAExecutionProvider" in providers:
-                print(f"✅ ONNX Runtime CUDA: Available (Providers: {providers})")
-                print(f"✅ ONNX Runtime CUDA: Có sẵn (Providers: {providers})")
+            # Safely check for available providers (handle partially uninstalled modules)
+            # Kiểm tra providers có sẵn một cách an toàn (xử lý module bị gỡ một phần)
+            if hasattr(onnxruntime, 'get_available_providers'):
+                providers = onnxruntime.get_available_providers()
+                if "CUDAExecutionProvider" in providers:
+                    print(f"✅ ONNX Runtime CUDA: Available (Providers: {providers})")
+                    print(f"✅ ONNX Runtime CUDA: Có sẵn (Providers: {providers})")
+                else:
+                    print(f"⚠️  ONNX Runtime CUDA: Not available (Providers: {providers})")
+                    print(f"⚠️  ONNX Runtime CUDA: Không khả dụng (Providers: {providers})")
             else:
-                print(f"⚠️  ONNX Runtime CUDA: Not available (Providers: {providers})")
-                print(f"⚠️  ONNX Runtime CUDA: Không khả dụng (Providers: {providers})")
+                print("⚠️  ONNX Runtime: Module corrupted or incomplete (missing get_available_providers)")
+                print("⚠️  ONNX Runtime: Module bị hỏng hoặc không đầy đủ (thiếu get_available_providers)")
+                print("   Please reinstall: pip install onnxruntime-gpu")
+                print("   Vui lòng cài đặt lại: pip install onnxruntime-gpu")
         except ImportError:
             print("⚠️  ONNX Runtime: Not installed")
             print("⚠️  ONNX Runtime: Chưa được cài đặt")
+        except Exception as e:
+            print(f"⚠️  ONNX Runtime: Error checking providers: {e}")
+            print(f"⚠️  ONNX Runtime: Lỗi kiểm tra providers: {e}")
         print(f"Default model: {default_model}")
         print(f"Model mặc định: {default_model}")
         
-        # Preload default model at startup (only if not using pool, pool initializes lazily)
-        # Tải trước model mặc định khi khởi động (chỉ nếu không dùng pool, pool khởi tạo lazy)
+        # Preload default model at startup with warmup to eliminate 10s setup delay per request
+        # Tải trước model mặc định khi khởi động với warmup để loại bỏ độ trễ setup 10s mỗi request
         if preload_default and not self.use_model_pool:
             print(f"Preloading default model: {default_model}...")
             print(f"Đang tải trước model mặc định: {default_model}...")
@@ -198,19 +211,19 @@ class TTSService:
                 print("✅ VietTTS model preloaded to GPU")
                 print("✅ Model VietTTS đã được tải trước lên GPU")
                 
-                # Warmup model to prepare for fast inference
-                # Làm nóng model để chuẩn bị cho inference nhanh
+                # Warmup to compile CUDA kernels once (eliminates 10s setup delay on each request)
+                # Warmup để compile CUDA kernels một lần (loại bỏ độ trễ setup 10s ở mỗi request)
                 if self.device == "cuda":
-                    print("🔥 Warming up model (this may take 30-60 seconds)...")
-                    print("🔥 Đang làm nóng model (có thể mất 30-60 giây)...")
-                    viet_tts.warmup()
+                    print("🔥 Warming up model (compiling CUDA kernels - eliminates 10s setup delay)...")
+                    print("🔥 Đang làm nóng model (compile CUDA kernels - loại bỏ độ trễ setup 10s)...")
+                    viet_tts.warmup(voice_name="quynh")  # Use default voice for warmup
             except Exception as e:
                 print(f"⚠️  Failed to preload VietTTS: {e}")
                 print(f"⚠️  Không thể tải trước VietTTS: {e}")
                 import traceback
                 traceback.print_exc()
-            print("✅ Default model ready")
-            print("✅ Model mặc định đã sẵn sàng")
+            print("✅ Default model ready (warmed up, CUDA kernels compiled)")
+            print("✅ Model mặc định đã sẵn sàng (đã warmup, CUDA kernels đã compile)")
         elif self.use_model_pool:
             print(f"ℹ️  Model Pool will initialize lazily on first request (faster startup)")
             print(f"ℹ️  Model Pool sẽ khởi tạo lazy ở request đầu tiên (khởi động nhanh hơn)")
@@ -256,31 +269,39 @@ class TTSService:
         if model != "viet-tts":
             raise ValueError(f"Unknown model: {model}")
         
-        # Use Model Pool for concurrent inference (if enabled)
-        # Sử dụng Model Pool cho inference đồng thời (nếu được bật)
-        if self.use_model_pool and self.model_pool:
-            with self.model_pool.get_model() as viet_tts:
-                return viet_tts.synthesize(
-                    text=text,
-                    voice=voice,
-                    voice_file=voice_file,
-                    speed=speed,
-                    batch_chunks=batch_chunks,
-                    **kwargs
-                )
-        else:
-            # Fallback: Use single model instance with lock (sequential processing)
-            # Dự phòng: Sử dụng instance model đơn với lock (xử lý tuần tự)
-            with self._inference_lock:
-                viet_tts = self.get_viet_tts()
-                return viet_tts.synthesize(
-                    text=text,
-                    voice=voice,
-                    voice_file=voice_file,
-                    speed=speed,
-                    batch_chunks=batch_chunks,
-                    **kwargs
-                )
+        service_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [Service] Starting synthesize - Model: {model}, Voice: {voice or voice_file or 'default'}")
+        print(f"[{timestamp}] [Service] Bắt đầu synthesize - Model: {model}, Giọng: {voice or voice_file or 'default'}")
+        
+        # Get model instance
+        get_model_start = time.time()
+        viet_tts = self.get_viet_tts()
+        get_model_duration = time.time() - get_model_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [Service] Get model instance: {get_model_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [Service] Lấy instance model: {get_model_duration*1000:.2f}ms")
+        
+        # Call synthesize
+        synthesize_start = time.time()
+        result = viet_tts.synthesize(
+            text=text,
+            voice=voice,
+            voice_file=voice_file,
+            speed=speed,
+            batch_chunks=batch_chunks,
+            **kwargs
+        )
+        synthesize_duration = time.time() - synthesize_start
+        service_total = time.time() - service_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        print(f"[{timestamp}] [Service] Synthesize call duration: {synthesize_duration:.3f}s")
+        print(f"[{timestamp}] [Service] Thời gian gọi synthesize: {synthesize_duration:.3f}s")
+        print(f"[{timestamp}] [Service] Service total time: {service_total:.3f}s")
+        print(f"[{timestamp}] [Service] Tổng thời gian service: {service_total:.3f}s")
+        
+        return result
     
     def get_model_info(self, model: ModelType) -> dict:
         """
