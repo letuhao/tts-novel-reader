@@ -10,7 +10,14 @@ export class TTSService {
     this.baseURL = baseURL || process.env.TTS_BACKEND_URL || 'http://127.0.0.1:11111';
     this.defaultSpeaker = process.env.TTS_DEFAULT_SPEAKER || '05';
     this.defaultExpiryHours = parseInt(process.env.TTS_DEFAULT_EXPIRY_HOURS || '365');
-    this.defaultModel = process.env.TTS_DEFAULT_MODEL || 'dia';
+    // Changed default to vieneu-tts (100% compatible backend)
+    // Đã đổi mặc định sang vieneu-tts (backend tương thích 100%)
+    this.defaultModel = process.env.TTS_DEFAULT_MODEL || 'vieneu-tts';
+    // VieNeu-TTS defaults / Mặc định VieNeu-TTS
+    this.defaultVoice = process.env.TTS_DEFAULT_VOICE || 'id_0004'; // Female voice / Giọng nữ
+    this.defaultAutoVoice = process.env.TTS_AUTO_VOICE === 'true';
+    this.defaultAutoChunk = process.env.TTS_AUTO_CHUNK !== 'false'; // Default true
+    this.defaultMaxChars = parseInt(process.env.TTS_MAX_CHARS || '256');
   }
   
   /**
@@ -26,17 +33,27 @@ export class TTSService {
       speakerId = this.defaultSpeaker,
       model = this.defaultModel,
       expiryHours = this.defaultExpiryHours,
+      // Dia-specific parameters / Tham số riêng Dia
       temperature = 1.3,
       top_p = 0.95,
       cfg_scale = 3.0,
       speedFactor = 1.0,  // Normal speed to match preset (0.8-1.0, 1.0 = normal)
       trimSilence = false,  // Default to false for worker (trim can cut off important dialogue)
       normalize = true,  // Default to true for worker (normalize is useful)
+      // VieNeu-TTS specific parameters / Tham số riêng VieNeu-TTS
+      voice = this.defaultVoice,  // Voice ID like "id_0004" or "female"/"male" / ID giọng như "id_0004" hoặc "female"/"male"
+      autoVoice = this.defaultAutoVoice,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
+      refAudioPath = null,  // Custom reference audio path / Đường dẫn audio tham chiếu tùy chỉnh
+      refText = null,  // Custom reference text / Văn bản tham chiếu tùy chỉnh
+      autoChunk = this.defaultAutoChunk,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài
+      maxChars = this.defaultMaxChars,  // Max chars per chunk / Ký tự tối đa mỗi chunk
+      // Common parameters / Tham số chung
       store = true,
       returnAudio = false
     } = options;
     
-    // Format text with speaker ID for Dia model
+    // Format text with speaker ID for Dia model only
+    // Định dạng văn bản với speaker ID chỉ cho model Dia
     let formattedText = text;
     if (model === 'dia' && !text.startsWith('[')) {
       formattedText = `[${speakerId}] ${text}`;
@@ -47,23 +64,44 @@ export class TTSService {
       console.log(`[TTS Service] [generateAudio] Đang gửi yêu cầu tới TTS backend...`);
       console.log(`[TTS Service] [generateAudio] URL: ${this.baseURL}/api/tts/synthesize`);
       console.log(`[TTS Service] [generateAudio] Text length: ${formattedText.length} chars`);
-      console.log(`[TTS Service] [generateAudio] Model: ${model}, Speaker: ${speakerId}`);
+      console.log(`[TTS Service] [generateAudio] Model: ${model}${model === 'vieneu-tts' ? `, Voice: ${voice}` : `, Speaker: ${speakerId}`}`);
+      
+      // Build request body based on model / Xây dựng body request dựa trên model
+      const requestBody = {
+        text: formattedText,
+        model: model,
+        store: store,
+        expiry_hours: expiryHours,
+        return_audio: returnAudio
+      };
+      
+      // Add model-specific parameters / Thêm tham số riêng theo model
+      if (model === 'vieneu-tts') {
+        // VieNeu-TTS parameters / Tham số VieNeu-TTS
+        requestBody.voice = voice;
+        requestBody.auto_voice = autoVoice;
+        requestBody.auto_chunk = autoChunk;
+        requestBody.max_chars = maxChars;
+        // Optional custom reference / Tham chiếu tùy chỉnh tùy chọn
+        if (refAudioPath) {
+          requestBody.ref_audio_path = refAudioPath;
+        }
+        if (refText) {
+          requestBody.ref_text = refText;
+        }
+      } else if (model === 'dia') {
+        // Dia parameters / Tham số Dia
+        requestBody.temperature = temperature;
+        requestBody.top_p = top_p;
+        requestBody.cfg_scale = cfg_scale;
+        requestBody.speed_factor = speedFactor;
+        requestBody.trim_silence = trimSilence;
+        requestBody.normalize = normalize;
+      }
       
       const response = await axios.post(
         `${this.baseURL}/api/tts/synthesize`,
-        {
-          text: formattedText,
-          model: model,
-          temperature: temperature,
-          top_p: top_p,
-          cfg_scale: cfg_scale,
-          speed_factor: speedFactor,  // Slower speech for better comprehension
-          trim_silence: trimSilence,  // Default false for worker (avoids cutting dialogue)
-          normalize: normalize,  // Default false for worker
-          store: store,
-          expiry_hours: expiryHours,
-          return_audio: returnAudio
-        },
+        requestBody,
         {
           timeout: 120000, // 2 minutes timeout
           headers: {

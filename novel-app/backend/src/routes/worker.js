@@ -20,6 +20,11 @@ router.post('/generate/chapter', async (req, res, next) => {
       expiryHours = 365 * 24,
       forceRegenerate = false,
       speedFactor = 1.0,  // Normal speed (matches preset)
+      // VieNeu-TTS options / Tùy chọn VieNeu-TTS
+      voice = 'id_0004',  // Default female voice / Mặc định giọng nữ
+      autoVoice = false,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
+      autoChunk = true,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài
+      maxChars = 256,  // Max chars per chunk / Ký tự tối đa mỗi chunk
       // Worker options for slower processing
       delayBetweenBatches = 11110, // 3 seconds between batches (50% slower)
       delayBetweenItems = 2000 // 2 seconds between items
@@ -36,6 +41,11 @@ router.post('/generate/chapter', async (req, res, next) => {
       speakerId, 
       expiryHours,
       speedFactor,  // Pass speed factor
+      // VieNeu-TTS options / Tùy chọn VieNeu-TTS
+      voice: voice,
+      autoVoice: autoVoice,
+      autoChunk: autoChunk,
+      maxChars: maxChars,
       delayBetweenBatches,
       delayBetweenItems
     });

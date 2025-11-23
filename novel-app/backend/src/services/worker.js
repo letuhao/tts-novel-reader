@@ -162,7 +162,7 @@ export class AudioWorker {
               paragraphNumber: paragraph.paragraphNumber,
               status: 'in_progress',
               speakerId: speakerId,
-              model: 'dia',
+              model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
               progressPercent: 0,
               startedAt: new Date().toISOString()
             });
@@ -196,6 +196,13 @@ export class AudioWorker {
             {
               speakerId: speakerId,
               ttsExpiryHours: 2,  // TTS backend cache: 2 hours (short-term temporary storage)
+              model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
+              // VieNeu-TTS parameters / Tham số VieNeu-TTS
+              voice: this.voice,  // Voice selection (default: id_0004 - female) / Lựa chọn giọng (mặc định: id_0004 - nữ)
+              autoVoice: this.autoVoice,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
+              autoChunk: this.autoChunk,  // Auto-chunk long text (default: true) / Tự động chia nhỏ văn bản dài (mặc định: true)
+              maxChars: this.maxChars,  // Max chars per chunk (default: 256) / Ký tự tối đa mỗi chunk (mặc định: 256)
+              // Dia parameters (only used if model is 'dia') / Tham số Dia (chỉ dùng nếu model là 'dia')
               speedFactor: this.speedFactor,  // Normal speed (1.0) to match preset
               deleteFromTTSAfterDownload: true,  // Clean up TTS cache after download
               chapterTitle: chapterTitle,  // Include chapter title for better organization
@@ -203,7 +210,6 @@ export class AudioWorker {
               paragraphId: paragraph.id,    // Include paragraph database ID
               paragraphIndex: i,            // Include paragraph index in chapter (for navigation)
               totalParagraphsInChapter: chapter.paragraphs.length,  // Total paragraphs for progress (e.g., "5 of 112")
-              model: 'dia',                 // Include model name
               forceRegenerate: forceRegenerate  // Pass forceRegenerate flag to skip existing audio check
             }
           );
@@ -224,7 +230,7 @@ export class AudioWorker {
             ttsFileId: audioMetadata.fileId,
             speakerId: speakerId,
             expiresAt: audioMetadata.expiresAt,
-            model: 'dia',
+            model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
             localAudioPath: audioMetadata.localAudioPath || null,
             audioDuration: audioMetadata.audioDuration || null,
             audioFileSize: audioMetadata.audioFileSize || null
@@ -290,7 +296,7 @@ export class AudioWorker {
                 paragraphNumber: paragraph.paragraphNumber,
                 status: 'failed',
                 speakerId: speakerId,
-                model: 'dia',
+                model: 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
                 errorMessage: error.message
               });
             } catch (progressError) {

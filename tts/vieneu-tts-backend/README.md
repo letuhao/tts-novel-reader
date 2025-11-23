@@ -94,9 +94,9 @@ Nếu bạn muốn sao chép venv thủ công:
 python main.py
 ```
 
-The backend will start on `http://0.0.0.0:11112`
+The backend will start on `http://0.0.0.0:11111`
 
-Backend sẽ khởi động trên `http://0.0.0.0:11112`
+Backend sẽ khởi động trên `http://0.0.0.0:11111`
 
 ## 📋 API Endpoints
 

@@ -111,7 +111,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=11112,
+        port=11111,
         reload=False,  # Disable reload for background running
         log_level=uvicorn_log_level,
         access_log=False  # Disable access logs for silent mode

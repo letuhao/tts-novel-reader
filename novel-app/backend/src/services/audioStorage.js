@@ -161,7 +161,12 @@ export class AudioStorageService {
     const {
       speakerId = '05',
       ttsExpiryHours = 2,  // TTS backend cache: 2 hours (short-term temporary storage)
-      model = 'dia',
+      model = 'vieneu-tts',  // Changed default to VieNeu-TTS / Đã đổi mặc định sang VieNeu-TTS
+      // VieNeu-TTS specific options / Tùy chọn riêng VieNeu-TTS
+      voice = 'id_0004',  // Default female voice / Mặc định giọng nữ
+      autoVoice = false,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
+      autoChunk = true,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài
+      maxChars = 256,  // Max chars per chunk / Ký tự tối đa mỗi chunk
       speedFactor = 1.0,  // Normal speed (matches preset quality)
       trimSilence = false,  // Default false (trim can cut off important dialogue)
       normalize = true,  // Default true (normalize is useful)
@@ -229,6 +234,12 @@ export class AudioStorageService {
         speakerId: speakerId,
         model: model,
         expiryHours: ttsExpiryHours,  // Short-term cache in TTS backend
+        // VieNeu-TTS parameters / Tham số VieNeu-TTS
+        voice: voice,
+        autoVoice: autoVoice,
+        autoChunk: autoChunk,
+        maxChars: maxChars,
+        // Dia parameters (only used if model is 'dia') / Tham số Dia (chỉ dùng nếu model là 'dia')
         speedFactor: speedFactor,  // Pass speed factor for slower narration
         trimSilence: trimSilence,  // Default false (trim can cut off important dialogue)
         normalize: normalize,  // Default false

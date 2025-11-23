@@ -1,14 +1,19 @@
-# Restart Both Servers
-# Khởi động lại Cả hai Server
+# Restart All Servers (Backends + Frontend)
+# Khởi động lại Tất cả Server (Backends + Frontend)
 
-Write-Host "=== Restarting All Servers ===" -ForegroundColor Cyan
-Write-Host "=== Khởi động lại Tất cả Server ===" -ForegroundColor Cyan
+Write-Host "=== Restarting All Servers (Backends + Frontend) ===" -ForegroundColor Cyan
+Write-Host "=== Khởi động lại Tất cả Server (Backends + Frontend) ===" -ForegroundColor Cyan
 Write-Host ""
 
-# Stop TTS Backend
-Write-Host "Stopping TTS Backend..." -ForegroundColor Yellow
-cd app
+# Stop VieNeu-TTS Backend (using new backend)
+Write-Host "Stopping VieNeu-TTS Backend..." -ForegroundColor Yellow
+Write-Host "Đang dừng VieNeu-TTS Backend..." -ForegroundColor Yellow
+cd tts\vieneu-tts-backend
 if (Test-Path "stop_backend.py") {
+    python stop_backend.py
+} elseif (Test-Path "..\..\app\stop_backend.py") {
+    # Fallback to old backend if new one doesn't exist
+    cd ..\..\app
     python stop_backend.py
 }
 Start-Sleep -Seconds 2
@@ -16,29 +21,94 @@ Start-Sleep -Seconds 2
 # Stop Novel Backend
 Write-Host ""
 Write-Host "Stopping Novel Backend..." -ForegroundColor Yellow
-cd ..\novel-app\backend
+Write-Host "Đang dừng Novel Backend..." -ForegroundColor Yellow
+cd ..\..\novel-app\backend
 if (Test-Path "stop_backend.py") {
     python stop_backend.py
 }
 Start-Sleep -Seconds 2
 
-# Start TTS Backend
+# Stop Frontend
 Write-Host ""
-Write-Host "Starting TTS Backend..." -ForegroundColor Cyan
-cd ..\..\app
-python start_backend.py
+Write-Host "Stopping Frontend..." -ForegroundColor Yellow
+Write-Host "Đang dừng Frontend..." -ForegroundColor Yellow
+cd ..\..\novel-app\frontend
+$frontendProcess = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+if ($frontendProcess) {
+    try {
+        Stop-Process -Id $frontendProcess -Force -ErrorAction Stop
+        Write-Host "   ✅ Stopped frontend process $frontendProcess" -ForegroundColor Green
+    } catch {
+        Write-Host "   ⚠️  Could not stop frontend process: $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "   ℹ️  No frontend process found on port 5173" -ForegroundColor Gray
+}
+Start-Sleep -Seconds 2
+
+# Start VieNeu-TTS Backend (using new backend)
+Write-Host ""
+Write-Host "Starting VieNeu-TTS Backend..." -ForegroundColor Cyan
+Write-Host "Đang khởi động VieNeu-TTS Backend..." -ForegroundColor Cyan
+cd ..\..\tts\vieneu-tts-backend
+if (Test-Path "start_backend.py") {
+    python start_backend.py
+} elseif (Test-Path "start_backend.ps1") {
+    .\start_backend.ps1
+} elseif (Test-Path "run.ps1") {
+    # Use run.ps1 if start_backend scripts don't exist
+    Start-Process pwsh -ArgumentList "-File", "run.ps1" -NoNewWindow
+} elseif (Test-Path "..\..\app\start_backend.py") {
+    # Fallback to old backend if new one doesn't exist
+    cd ..\..\app
+    python start_backend.py
+}
 Start-Sleep -Seconds 5
 
 # Start Novel Backend
 Write-Host ""
 Write-Host "Starting Novel Backend..." -ForegroundColor Cyan
-cd ..\novel-app\backend
+Write-Host "Đang khởi động Novel Backend..." -ForegroundColor Cyan
+cd ..\..\novel-app\backend
 python start_backend.py
 Start-Sleep -Seconds 5
+
+# Start Frontend
+Write-Host ""
+Write-Host "Starting Frontend..." -ForegroundColor Cyan
+Write-Host "Đang khởi động Frontend..." -ForegroundColor Cyan
+cd ..\..\novel-app\frontend
+
+# Check if node_modules exists (dependencies installed)
+if (-not (Test-Path "node_modules")) {
+    Write-Host "   ⚠️  node_modules not found. Installing dependencies..." -ForegroundColor Yellow
+    Write-Host "   ⚠️  Không tìm thấy node_modules. Đang cài đặt dependencies..." -ForegroundColor Yellow
+    npm install
+}
+
+# Check if already running
+$existingFrontend = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+if ($existingFrontend) {
+    Write-Host "   ⚠️  Frontend is already running on port 5173!" -ForegroundColor Yellow
+    Write-Host "   ⚠️  Frontend đang chạy trên port 5173 rồi!" -ForegroundColor Yellow
+} else {
+    # Start frontend in a new window
+    Write-Host "   🚀 Starting frontend dev server..." -ForegroundColor Cyan
+    Write-Host "   🚀 Đang khởi động frontend dev server..." -ForegroundColor Cyan
+    
+    # Get the full path to the frontend directory
+    $frontendDir = (Get-Location).Path
+    
+    # Start npm run dev in a new window
+    Start-Process pwsh -ArgumentList "-NoExit", "-Command", "cd '$frontendDir'; npm run dev" -WindowStyle Normal
+    
+    Start-Sleep -Seconds 8  # Wait longer for frontend to start
+}
 
 # Check status
 Write-Host ""
 Write-Host "=== Checking Server Status ===" -ForegroundColor Green
+Write-Host "=== Đang kiểm tra Trạng thái Server ===" -ForegroundColor Green
 Write-Host ""
 
 $tts = try {
@@ -55,23 +125,59 @@ $novel = try {
     $false
 }
 
+$frontend = try {
+    $response = Invoke-WebRequest -Uri "http://localhost:5173" -TimeoutSec 2 -UseBasicParsing
+    $true
+} catch {
+    $false
+}
+
 if ($tts) {
-    Write-Host "✅ TTS Backend (port 11111): Running" -ForegroundColor Green
+    Write-Host "✅ VieNeu-TTS Backend (port 11111): Running" -ForegroundColor Green
+    Write-Host "✅ VieNeu-TTS Backend (port 11111): Đang chạy" -ForegroundColor Green
 } else {
-    Write-Host "❌ TTS Backend (port 11111): Not responding" -ForegroundColor Red
+    Write-Host "❌ VieNeu-TTS Backend (port 11111): Not responding" -ForegroundColor Red
+    Write-Host "❌ VieNeu-TTS Backend (port 11111): Không phản hồi" -ForegroundColor Red
 }
 
 if ($novel) {
     Write-Host "✅ Novel Backend (port 11110): Running" -ForegroundColor Green
+    Write-Host "✅ Novel Backend (port 11110): Đang chạy" -ForegroundColor Green
 } else {
     Write-Host "❌ Novel Backend (port 11110): Not responding" -ForegroundColor Red
+    Write-Host "❌ Novel Backend (port 11110): Không phản hồi" -ForegroundColor Red
+}
+
+if ($frontend) {
+    Write-Host "✅ Frontend (port 5173): Running" -ForegroundColor Green
+    Write-Host "✅ Frontend (port 5173): Đang chạy" -ForegroundColor Green
+} else {
+    Write-Host "⚠️  Frontend (port 5173): Not responding (may still be starting)" -ForegroundColor Yellow
+    Write-Host "⚠️  Frontend (port 5173): Không phản hồi (có thể vẫn đang khởi động)" -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host "=== Servers Restarted! ===" -ForegroundColor Green
+Write-Host "=== All Servers Restarted! ===" -ForegroundColor Green
+Write-Host "=== Tất cả Server đã được Khởi động lại! ===" -ForegroundColor Green
 Write-Host ""
-Write-Host "📋 Next Steps:" -ForegroundColor Cyan
-Write-Host "  1. Start frontend: cd novel-app/frontend && npm run dev" -ForegroundColor White
-Write-Host "  2. Open browser: http://localhost:5173" -ForegroundColor White
-Write-Host "  3. Generate audio from frontend to test the fixes" -ForegroundColor White
+Write-Host "📋 Server URLs:" -ForegroundColor Cyan
+Write-Host "  - VieNeu-TTS Backend: http://127.0.0.1:11111" -ForegroundColor White
+Write-Host "  - Novel Backend: http://127.0.0.1:11110" -ForegroundColor White
+Write-Host "  - Frontend: http://localhost:5173" -ForegroundColor White
+Write-Host ""
+Write-Host "🌐 Opening frontend in browser..." -ForegroundColor Cyan
+Write-Host "🌐 Đang mở frontend trong trình duyệt..." -ForegroundColor Cyan
+Start-Sleep -Seconds 2
+
+# Open browser to frontend
+try {
+    Start-Process "http://localhost:5173"
+    Write-Host "✅ Browser opened!" -ForegroundColor Green
+    Write-Host "✅ Trình duyệt đã được mở!" -ForegroundColor Green
+} catch {
+    Write-Host "⚠️  Could not open browser automatically. Please open http://localhost:5173 manually" -ForegroundColor Yellow
+    Write-Host "⚠️  Không thể tự động mở trình duyệt. Vui lòng mở http://localhost:5173 thủ công" -ForegroundColor Yellow
+}
+
+Write-Host ""
 
