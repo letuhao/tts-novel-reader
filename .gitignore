@@ -245,3 +245,9 @@ models/vieneu-tts-gguf/
 tts/Dia-Finetuning-Vietnamese
 
 tts/VieNeu-TTS
+
+models/dangvansam-viet-tts/
+
+tts/viet-tts
+
+libraries/Vinorm

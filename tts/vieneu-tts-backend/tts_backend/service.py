@@ -50,9 +50,24 @@ class TTSService:
                     print("Chuyển sang VieNeu-TTS làm mặc định...")
                     self.default_model = "vieneu-tts"
             elif default_model == "vieneu-tts":
-                # Note: VieNeu-TTS might not preload if it needs ref_audio
-                # Note: VieNeu-TTS có thể không tải trước nếu cần ref_audio
-                pass
+                # Preload VieNeu-TTS model (backbone and codec will be loaded to GPU)
+                # Tải trước model VieNeu-TTS (backbone và codec sẽ được tải lên GPU)
+                try:
+                    vieneu_tts = self.get_vieneu_tts()  # Preload VieNeu-TTS model
+                    print("✅ VieNeu-TTS model preloaded to GPU")
+                    print("✅ Model VieNeu-TTS đã được tải trước lên GPU")
+                    
+                    # Warmup model to trigger torch.compile and prepare for fast inference
+                    # Làm nóng model để kích hoạt torch.compile và chuẩn bị cho inference nhanh
+                    if self.device == "cuda":
+                        print("🔥 Warming up model (this may take 30-60 seconds)...")
+                        print("🔥 Đang làm nóng model (có thể mất 30-60 giây)...")
+                        vieneu_tts.warmup()
+                except Exception as e:
+                    print(f"⚠️  Failed to preload VieNeu-TTS: {e}")
+                    print(f"⚠️  Không thể tải trước VieNeu-TTS: {e}")
+                    import traceback
+                    traceback.print_exc()
             print("✅ Default model ready")
             print("✅ Model mặc định đã sẵn sàng")
     
