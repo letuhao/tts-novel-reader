@@ -124,39 +124,93 @@ export class AudioWorker {
               speakerId
             );
             
+            let fileExists = false;
+            let localAudioPath = null;
+            
+            // Check database-stored path if entry exists
+            // Kiểm tra đường dẫn lưu trong database nếu entry tồn tại
             if (existingAudio) {
               const expiresAt = new Date(existingAudio.expires_at);
               const isValid = expiresAt > new Date();
               
-              if (isValid) {
-                // Check if physical file exists
-                let fileExists = false;
-                if (existingAudio.local_audio_path) {
-                  try {
-                    const fs = await import('fs/promises');
-                    const stats = await fs.stat(existingAudio.local_audio_path);
-                    fileExists = stats.isFile() && stats.size > 0;
-                  } catch (e) {
-                    fileExists = false;
+              if (isValid && existingAudio.local_audio_path) {
+                try {
+                  const fs = await import('fs/promises');
+                  const stats = await fs.stat(existingAudio.local_audio_path);
+                  fileExists = stats.isFile() && stats.size > 0;
+                  if (fileExists) {
+                    localAudioPath = existingAudio.local_audio_path;
                   }
-                }
-                
-                if (fileExists) {
-                  console.log(`[Worker] ⏭️ Skipping paragraph ${paragraph.paragraphNumber} - Audio already exists`);
-                  paragraphResults.push({
-                    success: true,
-                    cached: true,
-                    skipped: true,
-                    paragraphNumber: paragraph.paragraphNumber,
-                    paragraphId: paragraph.id,
-                    fileId: existingAudio.tts_file_id,
-                    audioURL: this.audioStorage.getAudioURL(existingAudio.tts_file_id),
-                    localAudioPath: existingAudio.local_audio_path,
-                    text: paragraphText.substring(0, 50) + '...'
-                  });
-                  continue; // Skip generation, use cached
+                } catch (e) {
+                  // Database path doesn't exist, continue to check standard path
+                  // Đường dẫn database không tồn tại, tiếp tục kiểm tra đường dẫn chuẩn
+                  fileExists = false;
                 }
               }
+            }
+            
+            // If database check failed or no database entry, check standard storage path
+            // Nếu kiểm tra database thất bại hoặc không có entry, kiểm tra đường dẫn storage chuẩn
+            if (!fileExists) {
+              try {
+                const fs = await import('fs/promises');
+                const path = await import('path');
+                
+                // Build expected file path based on storage structure
+                // Xây dựng đường dẫn file mong đợi dựa trên cấu trúc storage
+                const novel = await NovelModel.getById(novelId);
+                const novelTitle = novel?.title || null;
+                const chapterTitle = chapter.title || null;
+                
+                // Use audioStorage to get expected path (same logic as generateAndStore)
+                // Sử dụng audioStorage để lấy đường dẫn mong đợi (cùng logic như generateAndStore)
+                const storageDir = await this.audioStorage.ensureStorageDir(
+                  novelId,
+                  chapterNumber,
+                  paragraph.paragraphNumber,
+                  chapterTitle,
+                  novelTitle
+                );
+                const expectedPath = path.join(storageDir, `paragraph_${String(paragraph.paragraphNumber).padStart(3, '0')}.wav`);
+                
+                try {
+                  const stats = await fs.stat(expectedPath);
+                  fileExists = stats.isFile() && stats.size > 0;
+                  if (fileExists) {
+                    localAudioPath = expectedPath;
+                    console.log(`[Worker] ✅ Found audio file at expected path: ${expectedPath}`);
+                  }
+                } catch (e) {
+                  // Expected path doesn't exist
+                  // Đường dẫn mong đợi không tồn tại
+                  fileExists = false;
+                }
+              } catch (pathError) {
+                console.warn(`[Worker] ⚠️ Error checking standard path: ${pathError.message}`);
+              }
+            }
+            
+            // If file exists, skip generation
+            // Nếu file tồn tại, bỏ qua generation
+            if (fileExists && localAudioPath) {
+              console.log(`[Worker] ⏭️ Skipping paragraph ${paragraph.paragraphNumber} - Audio already exists at: ${localAudioPath}`);
+              paragraphResults.push({
+                success: true,
+                cached: true,
+                skipped: true,
+                paragraphNumber: paragraph.paragraphNumber,
+                paragraphId: paragraph.id,
+                fileId: existingAudio?.tts_file_id || null,
+                audioURL: existingAudio?.tts_file_id ? this.audioStorage.getAudioURL(existingAudio.tts_file_id) : null,
+                localAudioPath: localAudioPath,
+                text: paragraphText.substring(0, 50) + '...'
+              });
+              continue; // Skip generation, use cached
+            } else if (existingAudio && !fileExists) {
+              // File doesn't exist, but database entry exists - log for debugging
+              // File không tồn tại, nhưng entry database tồn tại - log để debug
+              console.log(`[Worker] ⚠️ Database entry exists but file missing for paragraph ${paragraph.paragraphNumber}, will regenerate`);
+              console.log(`[Worker] ⚠️ Entry database tồn tại nhưng file thiếu cho paragraph ${paragraph.paragraphNumber}, sẽ tạo lại`);
             }
           } catch (checkError) {
             console.warn(`[Worker] ⚠️ Error checking cache: ${checkError.message}`);
@@ -210,6 +264,83 @@ export class AudioWorker {
           console.warn(`[Worker] ⚠️ Skipping meaningless paragraph ${paragraph.paragraphNumber} (client-side validation)`);
           console.warn(`[Worker] ⚠️ Bỏ qua paragraph vô nghĩa ${paragraph.paragraphNumber} (xác thực phía client)`);
           console.warn(`[Worker] Text preview: ${paragraphText.substring(0, 50)}...`);
+          
+          // Save metadata for skipped paragraph
+          // Lưu metadata cho paragraph đã bỏ qua
+          try {
+            const novel = await NovelModel.getById(novelId);
+            const novelTitle = novel?.title || null;
+            const chapterTitle = chapter.title || null;
+            
+            // Ensure storage directory exists
+            const storageDir = await this.audioStorage.ensureStorageDir(
+              novelId,
+              chapterNumber,
+              paragraph.paragraphNumber,
+              chapterTitle,
+              novelTitle
+            );
+            
+            // Create metadata for skipped paragraph
+            const skippedMetadata = {
+              fileId: null,  // No audio file
+              novelId: novelId,
+              novelTitle: novelTitle,
+              chapterNumber: chapterNumber,
+              chapterTitle: chapterTitle,
+              paragraphNumber: paragraph.paragraphNumber,
+              paragraphId: paragraph.id,
+              paragraphIndex: index,
+              totalParagraphsInChapter: chapter.paragraphs.length,
+              storageDir: storageDir,
+              ttsFileId: null,
+              audioURL: null,
+              localAudioPath: null,
+              
+              // Subtitle/Input text
+              subtitle: paragraphText,
+              normalizedText: paragraphText,
+              text: paragraphText,
+              textStats: {
+                characterCount: paragraphText.length,
+                wordCount: paragraphText.trim().split(/\s+/).filter(w => w.length > 0).length,
+                estimatedReadingTimeSeconds: 0
+              },
+              
+              // Audio information (none for skipped paragraphs)
+              audioDuration: 0,
+              audioDurationFormatted: '0:00',
+              audioFileSize: 0,
+              audioFileSizeMB: '0.00',
+              sampleRate: null,
+              
+              // Generation parameters
+              generationParams: {
+                speakerId: speakerId,
+                model: options.model || 'viettts',
+                speedFactor: options.speedFactor || 1.0
+              },
+              
+              // Status information
+              status: 'skipped',
+              reason: 'Meaningless paragraph (separator/decorator line) - skipped by client-side validation',
+              
+              skipped: true,
+              skippedAt: new Date().toISOString(),
+              createdAt: new Date().toISOString()
+            };
+            
+            // Save metadata file
+            const fs = await import('fs/promises');
+            const path = await import('path');
+            const metadataFilePath = path.join(storageDir, `paragraph_${String(paragraph.paragraphNumber).padStart(3, '0')}_metadata.json`);
+            await fs.writeFile(metadataFilePath, JSON.stringify(skippedMetadata, null, 2), 'utf-8');
+            console.log(`[Worker] ✅ Saved metadata for skipped paragraph ${paragraph.paragraphNumber} at ${metadataFilePath}`);
+            console.log(`[Worker] ✅ Đã lưu metadata cho paragraph đã bỏ qua ${paragraph.paragraphNumber} tại ${metadataFilePath}`);
+          } catch (metadataError) {
+            console.warn(`[Worker] ⚠️ Failed to save metadata for skipped paragraph: ${metadataError.message}`);
+            console.warn(`[Worker] ⚠️ Không thể lưu metadata cho paragraph đã bỏ qua: ${metadataError.message}`);
+          }
           
           // Update generation progress - Mark as skipped
           try {
@@ -553,9 +684,41 @@ export class AudioWorker {
       const failedCount = errors.length;
       const cachedCount = paragraphResults.filter(r => r.cached).length;
       const generatedCount = paragraphResults.filter(r => !r.cached).length;
+      
+      // Verify chapter is actually complete before returning success
+      // Xác minh chapter thực sự đã hoàn thành trước khi trả về thành công
+      let isActuallyComplete = false;
+      let verificationStatus = null;
+      try {
+        const verification = await this.isChapterComplete(novelId, chapterNumber, speakerId);
+        isActuallyComplete = verification.complete;
+        verificationStatus = verification;
+        
+        if (!isActuallyComplete) {
+          console.error(`[Worker] ❌ Chapter ${chapterNumber} generation finished but is INCOMPLETE: ${verification.completeCount}/${verification.totalParagraphs} paragraphs (${verification.percentage}%)`);
+          console.error(`[Worker] ❌ Chapter ${chapterNumber} generation hoàn tất nhưng CHƯA HOÀN THÀNH: ${verification.completeCount}/${verification.totalParagraphs} paragraphs (${verification.percentage}%)`);
+          if (verification.missingParagraphs.length > 0) {
+            console.error(`[Worker] Missing paragraphs: ${verification.missingParagraphs.join(', ')}${verification.missingCount > 10 ? ` (+${verification.missingCount - 10} more)` : ''}`);
+            console.error(`[Worker] Paragraphs thiếu: ${verification.missingParagraphs.join(', ')}${verification.missingCount > 10 ? ` (+${verification.missingCount - 10} nữa)` : ''}`);
+          }
+        }
+      } catch (verifyError) {
+        console.warn(`[Worker] ⚠️ Failed to verify chapter completion: ${verifyError.message}`);
+        // If verification fails, assume incomplete to be safe
+        // Nếu xác minh thất bại, giả định chưa hoàn thành để an toàn
+        isActuallyComplete = false;
+      }
+
+      // Count skipped paragraphs (they don't have audio files but are marked as success)
+      // Đếm các paragraphs đã bỏ qua (chúng không có file audio nhưng được đánh dấu là thành công)
+      const skippedCount = paragraphResults.filter(r => r.success && r.skipped).length;
+      
+      // Use verification status for accurate missing count
+      // Sử dụng trạng thái xác minh để đếm chính xác số lượng thiếu
+      const missingCount = verificationStatus ? verificationStatus.missingCount : (chapter.paragraphs.length - successCount);
 
       return {
-        success: successCount > 0,
+        success: isActuallyComplete && successCount > 0,  // Only true if actually complete
         chapterNumber: chapterNumber,
         chapterId: chapter.id,
         totalParagraphs: chapter.paragraphs.length,
@@ -563,10 +726,15 @@ export class AudioWorker {
         failedCount: failedCount,
         cachedCount: cachedCount,
         generatedCount: generatedCount,
+        skippedCount: skippedCount,  // Count of skipped paragraphs
         paragraphResults: paragraphResults,
         errors: errors,
         generationStats: generationStats,  // Include generation progress statistics
-        message: `Generated ${generatedCount} new, ${cachedCount} cached, ${failedCount} failed out of ${chapter.paragraphs.length} paragraphs`
+        isComplete: isActuallyComplete,  // Explicit completion flag
+        verificationStatus: verificationStatus,  // Include verification details
+        message: isActuallyComplete 
+          ? `Generated ${generatedCount} new, ${cachedCount} cached, ${failedCount} failed out of ${chapter.paragraphs.length} paragraphs - COMPLETE`
+          : `Generated ${generatedCount} new, ${cachedCount} cached, ${failedCount} failed, ${skippedCount} skipped out of ${chapter.paragraphs.length} paragraphs - INCOMPLETE (missing ${missingCount} paragraph(s) with audio files)`
       };
     } catch (error) {
       return {
@@ -575,6 +743,163 @@ export class AudioWorker {
         error: error.message,
         message: `Failed to generate chapter audio: ${error.message}`
       };
+    }
+  }
+
+  /**
+   * Check if a chapter is complete (all paragraphs have audio files)
+   * Kiểm tra xem một chapter đã hoàn thành chưa (tất cả paragraphs đều có file audio)
+   * 
+   * Checks both database entries and physical files on disk
+   * Kiểm tra cả entry database và file vật lý trên disk
+   * 
+   * @param {string} novelId - Novel ID
+   * @param {number} chapterNumber - Chapter number
+   * @param {string} speakerId - Speaker ID
+   * @returns {Promise<Object>} Completion status with details
+   */
+  async isChapterComplete(novelId, chapterNumber, speakerId) {
+    try {
+      // Get chapter and paragraphs
+      const chapter = await ChapterModel.getByNovelAndNumber(novelId, chapterNumber);
+      if (!chapter) {
+        return { complete: false, reason: 'Chapter not found' };
+      }
+      
+      const paragraphs = await ParagraphModel.getByChapter(chapter.id);
+      if (!paragraphs || paragraphs.length === 0) {
+        return { complete: false, reason: 'No paragraphs found' };
+      }
+      
+      // Helper function to check if paragraph is meaningless (same logic as in generateChapterAudio)
+      // Hàm helper để kiểm tra nếu paragraph vô nghĩa (cùng logic như trong generateChapterAudio)
+      const isMeaninglessParagraph = (text) => {
+        if (!text || text.trim().length === 0) {
+          return true;
+        }
+        
+        // Check for meaningful content (at least 5 alphanumeric characters)
+        // Kiểm tra nội dung có nghĩa (ít nhất 5 ký tự chữ số)
+        const meaningfulText = text.replace(/[^a-zA-Z0-9\s\u00C0-\u1EF9]/g, '').trim();
+        if (meaningfulText.length < 5) {
+          // Check if it's a separator line (all dashes, equals, underscores, etc.)
+          // Kiểm tra nếu là dòng phân cách (toàn dấu gạch ngang, dấu bằng, gạch dưới, v.v.)
+          const coreText = text.replace(/\s/g, '');
+          if (coreText.length > 0) {
+            const separatorChars = new Set('-=_~*#@$%^&+|\\/<>{}[]().,;:!?');
+            const isOnlySeparators = Array.from(coreText).every(c => separatorChars.has(c));
+            if (isOnlySeparators) {
+              return true;
+            }
+          }
+          // Very short text with no meaningful content
+          // Text rất ngắn không có nội dung có nghĩa
+          return text.length < 10;
+        }
+        return false;
+      };
+      
+      const totalParagraphs = paragraphs.length;
+      let completeCount = 0;
+      let missingParagraphs = [];
+      let skippedParagraphs = []; // Track skipped paragraphs for reporting
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      
+      // Get novel info for path building
+      const novel = await NovelModel.getById(novelId);
+      const novelTitle = novel?.title || null;
+      const chapterTitle = chapter.title || null;
+      
+      // Check each paragraph
+      for (const paragraph of paragraphs) {
+        const paragraphText = paragraph.text?.trim();
+        
+        // Skip empty paragraphs - they count as "complete"
+        if (!paragraphText || paragraphText.length === 0) {
+          completeCount++;
+          continue;
+        }
+        
+        // Skip meaningless paragraphs - they also count as "complete" (no audio needed)
+        // Bỏ qua paragraphs vô nghĩa - chúng cũng được tính là "complete" (không cần audio)
+        if (isMeaninglessParagraph(paragraphText)) {
+          completeCount++;
+          skippedParagraphs.push(paragraph.paragraphNumber);
+          continue;
+        }
+        
+        let fileExists = false;
+        
+        // First check database cache
+        const existingAudio = await AudioCacheModel.getByParagraph(
+          novelId,
+          chapter.id,
+          paragraph.id,
+          speakerId
+        );
+        
+        if (existingAudio) {
+          const expiresAt = new Date(existingAudio.expires_at);
+          const isValid = expiresAt > new Date();
+          
+          if (isValid && existingAudio.local_audio_path) {
+            try {
+              const stats = await fs.stat(existingAudio.local_audio_path);
+              fileExists = stats.isFile() && stats.size > 0;
+            } catch (e) {
+              // Database path doesn't exist, check standard path
+              fileExists = false;
+            }
+          }
+        }
+        
+        // If database check failed, check standard storage path
+        if (!fileExists) {
+          try {
+            const storageDir = await this.audioStorage.ensureStorageDir(
+              novelId,
+              chapterNumber,
+              paragraph.paragraphNumber,
+              chapterTitle,
+              novelTitle
+            );
+            const expectedPath = path.join(storageDir, `paragraph_${String(paragraph.paragraphNumber).padStart(3, '0')}.wav`);
+            
+            try {
+              const stats = await fs.stat(expectedPath);
+              fileExists = stats.isFile() && stats.size > 0;
+            } catch (e) {
+              fileExists = false;
+            }
+          } catch (pathError) {
+            // Path check failed
+            fileExists = false;
+          }
+        }
+        
+        if (fileExists) {
+          completeCount++;
+        } else {
+          missingParagraphs.push(paragraph.paragraphNumber);
+        }
+      }
+      
+      const isComplete = completeCount === totalParagraphs;
+      
+      return {
+        complete: isComplete,
+        totalParagraphs: totalParagraphs,
+        completeCount: completeCount,
+        missingCount: missingParagraphs.length,
+        missingParagraphs: missingParagraphs.slice(0, 10), // First 10 missing for logging
+        skippedCount: skippedParagraphs.length,
+        skippedParagraphs: skippedParagraphs.slice(0, 10), // First 10 skipped for logging
+        percentage: Math.round((completeCount / totalParagraphs) * 100)
+      };
+    } catch (error) {
+      console.error(`[Worker] ⚠️ Error checking chapter completeness: ${error.message}`);
+      return { complete: false, reason: error.message };
     }
   }
 
@@ -610,8 +935,38 @@ export class AudioWorker {
       
       // Process chapters in parallel
       // Xử lý chapters song song
-      const batchPromises = batch.map(chapterNumber => 
-        this.generateChapterAudio(novelId, chapterNumber, options)
+      const batchPromises = batch.map(async (chapterNumber) => {
+        const speakerId = options.speakerId || this.speakerId;
+        
+        // Check if chapter is already complete (unless forcing regeneration)
+        // Kiểm tra xem chapter đã hoàn thành chưa (trừ khi buộc tạo lại)
+        if (!options.forceRegenerate) {
+          const completionStatus = await this.isChapterComplete(novelId, chapterNumber, speakerId);
+          
+          if (completionStatus.complete) {
+            console.log(`[Worker] ✅ Chapter ${chapterNumber} is already complete (${completionStatus.completeCount}/${completionStatus.totalParagraphs} paragraphs) - skipping`);
+            console.log(`[Worker] ✅ Chapter ${chapterNumber} đã hoàn thành (${completionStatus.completeCount}/${completionStatus.totalParagraphs} paragraphs) - bỏ qua`);
+            return {
+              success: true,
+              chapterNumber: chapterNumber,
+              cached: true,
+              skipped: true,
+              message: `Chapter already complete (${completionStatus.completeCount}/${completionStatus.totalParagraphs} paragraphs)`,
+              completionStatus: completionStatus
+            };
+          } else {
+            console.log(`[Worker] ⚠️ Chapter ${chapterNumber} is incomplete: ${completionStatus.completeCount}/${completionStatus.totalParagraphs} paragraphs (${completionStatus.percentage}%)`);
+            console.log(`[Worker] ⚠️ Chapter ${chapterNumber} chưa hoàn thành: ${completionStatus.completeCount}/${completionStatus.totalParagraphs} paragraphs (${completionStatus.percentage}%)`);
+            if (completionStatus.missingParagraphs.length > 0) {
+              console.log(`[Worker] Missing paragraphs: ${completionStatus.missingParagraphs.join(', ')}${completionStatus.missingCount > 10 ? '...' : ''}`);
+              console.log(`[Worker] Paragraphs thiếu: ${completionStatus.missingParagraphs.join(', ')}${completionStatus.missingCount > 10 ? '...' : ''}`);
+            }
+          }
+        }
+        
+        // Generate chapter audio
+        // Tạo audio cho chapter
+        return this.generateChapterAudio(novelId, chapterNumber, options)
           .catch(error => {
             // Return error result instead of throwing
             // Trả về kết quả lỗi thay vì throw
@@ -621,12 +976,58 @@ export class AudioWorker {
               chapterNumber: chapterNumber,
               error: error.message
             };
-          })
-      );
+          });
+      });
       
       const batchResults = await Promise.all(batchPromises);
 
+      // Verify completion for each processed chapter (not skipped/cached ones)
+      // Xác minh hoàn thành cho mỗi chapter đã xử lý (không phải những cái đã bỏ qua/cached)
+      for (const result of batchResults) {
+        if (result.success && !result.cached && !result.skipped) {
+          // Verify chapter is actually complete after processing
+          // Xác minh chapter thực sự đã hoàn thành sau khi xử lý
+          const speakerId = options.speakerId || this.speakerId;
+          const verification = await this.isChapterComplete(novelId, result.chapterNumber, speakerId);
+          
+          if (!verification.complete) {
+            console.error(`[Worker] ❌ Chapter ${result.chapterNumber} processing reported success but verification shows INCOMPLETE: ${verification.completeCount}/${verification.totalParagraphs} paragraphs (${verification.percentage}%)`);
+            console.error(`[Worker] ❌ Chapter ${result.chapterNumber} xử lý báo thành công nhưng xác minh cho thấy CHƯA HOÀN THÀNH: ${verification.completeCount}/${verification.totalParagraphs} paragraphs (${verification.percentage}%)`);
+            if (verification.missingParagraphs.length > 0) {
+              console.error(`[Worker] Missing paragraphs: ${verification.missingParagraphs.join(', ')}${verification.missingCount > 10 ? ` (+${verification.missingCount - 10} more)` : ''}`);
+              console.error(`[Worker] Paragraphs thiếu: ${verification.missingParagraphs.join(', ')}${verification.missingCount > 10 ? ` (+${verification.missingCount - 10} nữa)` : ''}`);
+            }
+            
+            // Mark as failed to prevent moving to next chapter
+            // Đánh dấu là thất bại để ngăn chuyển sang chapter tiếp theo
+            result.success = false;
+            result.verificationFailed = true;
+            result.verificationStatus = verification;
+            result.error = `Chapter incomplete: ${verification.completeCount}/${verification.totalParagraphs} paragraphs (${verification.percentage}%)`;
+            result.message = `Chapter ${result.chapterNumber} is incomplete. Missing ${verification.missingCount} paragraph(s).`;
+          } else {
+            console.log(`[Worker] ✅ Verified chapter ${result.chapterNumber} is complete: ${verification.completeCount}/${verification.totalParagraphs} paragraphs`);
+            console.log(`[Worker] ✅ Đã xác minh chapter ${result.chapterNumber} hoàn thành: ${verification.completeCount}/${verification.totalParagraphs} paragraphs`);
+            result.verificationStatus = verification;
+          }
+        }
+      }
+
       results.push(...batchResults);
+      
+      // Check if any chapter in this batch failed verification (incomplete)
+      // Kiểm tra xem có chapter nào trong batch này thất bại xác minh (chưa hoàn thành) không
+      const incompleteChapters = batchResults.filter(r => r.verificationFailed || (r.success === false && r.isComplete === false));
+      if (incompleteChapters.length > 0) {
+        console.error(`[Worker] ❌ Batch ${batchNum} contains ${incompleteChapters.length} incomplete chapter(s). Stopping batch processing.`);
+        console.error(`[Worker] ❌ Batch ${batchNum} chứa ${incompleteChapters.length} chapter(s) chưa hoàn thành. Dừng xử lý batch.`);
+        for (const incomplete of incompleteChapters) {
+          console.error(`[Worker]   - Chapter ${incomplete.chapterNumber}: ${incomplete.error || incomplete.message}`);
+        }
+        // Don't continue to next batch if current batch has incomplete chapters
+        // Không tiếp tục batch tiếp theo nếu batch hiện tại có chapters chưa hoàn thành
+        break;
+      }
 
       // Progress callback
       if (options.onProgress) {
