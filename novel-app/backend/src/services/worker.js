@@ -167,6 +167,34 @@ export class AudioWorker {
         paragraphsToGenerate.push({ paragraph, index: i });
       }
 
+      // Helper function to check if paragraph is meaningless
+      // Hàm helper để kiểm tra xem paragraph có vô nghĩa không
+      const isMeaninglessParagraph = (text) => {
+        if (!text || text.trim().length === 0) {
+          return true;
+        }
+        
+        // Check for meaningful content (at least 5 alphanumeric characters)
+        // Kiểm tra nội dung có nghĩa (ít nhất 5 ký tự chữ số)
+        const meaningfulText = text.replace(/[^a-zA-Z0-9\s\u00C0-\u1EF9]/g, '').trim();
+        if (meaningfulText.length < 5) {
+          // Check if it's a separator line (all dashes, equals, underscores, etc.)
+          // Kiểm tra nếu là dòng phân cách (toàn dấu gạch ngang, dấu bằng, gạch dưới, v.v.)
+          const coreText = text.replace(/\s/g, '');
+          if (coreText.length > 0) {
+            const separatorChars = new Set('-=_~*#@$%^&+|\\/<>{}[]().,;:!?');
+            const isOnlySeparators = Array.from(coreText).every(c => separatorChars.has(c));
+            if (isOnlySeparators) {
+              return true;
+            }
+          }
+          // Very short text with no meaningful content
+          // Text rất ngắn không có nội dung có nghĩa
+          return text.length < 10;
+        }
+        return false;
+      };
+      
       // Helper function to process a single paragraph
       // Hàm helper để xử lý một paragraph
       const processParagraph = async (paragraph, index) => {
@@ -174,6 +202,39 @@ export class AudioWorker {
         
         if (!paragraphText || paragraphText.length === 0) {
           return { success: true, cached: true, skipped: true, paragraphNumber: paragraph.paragraphNumber };
+        }
+        
+        // Client-side validation: Skip meaningless paragraphs before calling TTS
+        // Xác thực phía client: Bỏ qua paragraphs vô nghĩa trước khi gọi TTS
+        if (isMeaninglessParagraph(paragraphText)) {
+          console.warn(`[Worker] ⚠️ Skipping meaningless paragraph ${paragraph.paragraphNumber} (client-side validation)`);
+          console.warn(`[Worker] ⚠️ Bỏ qua paragraph vô nghĩa ${paragraph.paragraphNumber} (xác thực phía client)`);
+          console.warn(`[Worker] Text preview: ${paragraphText.substring(0, 50)}...`);
+          
+          // Update generation progress - Mark as skipped
+          try {
+            await GenerationProgressModel.createOrUpdate({
+              novelId: novelId,
+              chapterId: chapter.id,
+              chapterNumber: chapterNumber,
+              paragraphId: paragraph.id,
+              paragraphNumber: paragraph.paragraphNumber,
+              status: 'skipped',
+              speakerId: speakerId,
+              model: 'viettts',
+              errorMessage: 'Meaningless paragraph (separator/decorator line)'
+            });
+          } catch (progressError) {
+            console.warn(`[Worker] ⚠️ Failed to track progress: ${progressError.message}`);
+          }
+          
+          return {
+            success: true,
+            skipped: true,
+            paragraphNumber: paragraph.paragraphNumber,
+            paragraphId: paragraph.id,
+            reason: 'Meaningless paragraph (separator/decorator line) - skipped by client-side validation'
+          };
         }
 
         try {
@@ -363,15 +424,33 @@ export class AudioWorker {
         } catch (error) {
           // Check if it's a "skip" error (meaningless text)
           // Kiểm tra xem có phải lỗi "skip" (text không có nghĩa) không
-          const isSkipError = error.message && (
-            error.message.includes('Skipping paragraph') ||
-            error.message.includes('meaningless') ||
-            error.message.includes('too short or meaningless')
-          );
+          const isSkipError = error.isSkip || 
+                             error.name === 'SkipError' ||
+                             (error.message && (
+                               error.message.includes('Skipping paragraph') ||
+                               error.message.includes('meaningless') ||
+                               error.message.includes('too short or meaningless') ||
+                               error.message.includes('only punctuation') ||
+                               error.message.includes('separator') ||
+                               error.message.includes('decorator line')
+                             ));
           
           if (isSkipError) {
-            console.warn(`[Worker] ⚠️ Skipping paragraph ${paragraph.paragraphNumber}: ${error.message}`);
-            console.warn(`[Worker] ⚠️ Bỏ qua paragraph ${paragraph.paragraphNumber}: ${error.message}`);
+            const reason = error.reason || error.message || 'Meaningless paragraph';
+            console.warn(`[Worker] ⚠️ Skipping paragraph ${paragraph.paragraphNumber}: ${reason}`);
+            console.warn(`[Worker] ⚠️ Bỏ qua paragraph ${paragraph.paragraphNumber}: ${reason}`);
+            
+            // Update generation progress - Mark as skipped
+            if (progressId) {
+              try {
+                await GenerationProgressModel.update(progressId, {
+                  status: 'skipped',
+                  errorMessage: reason
+                });
+              } catch (progressError) {
+                console.warn(`[Worker] ⚠️ Failed to update progress: ${progressError.message}`);
+              }
+            }
             
             // Return success with skip flag so generation can continue
             // Trả về thành công với cờ skip để generation có thể tiếp tục
@@ -380,7 +459,7 @@ export class AudioWorker {
               skipped: true,
               paragraphNumber: paragraph.paragraphNumber,
               paragraphId: paragraph.id,
-              reason: error.message
+              reason: reason
             };
           }
           

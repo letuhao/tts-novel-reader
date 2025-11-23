@@ -133,6 +133,22 @@ export class TTSService {
       console.log(`[TTS Service] [generateAudio] Status: ${response.status}`);
       console.log(`[TTS Service] [generateAudio] Headers:`, Object.keys(response.headers));
       
+      // Check if paragraph was skipped (meaningless content)
+      // Kiểm tra xem paragraph có bị bỏ qua không (nội dung vô nghĩa)
+      const isSkipped = response.data?.skipped || response.headers['x-skipped'] === 'true' || response.headers['X-Skipped'] === 'true';
+      if (isSkipped) {
+        const reason = response.data?.reason || 'Paragraph skipped - meaningless content';
+        console.log(`[TTS Service] [generateAudio] ⏭️ Paragraph skipped: ${reason}`);
+        console.log(`[TTS Service] [generateAudio] ⏭️ Paragraph đã được bỏ qua: ${reason}`);
+        // Throw a special error that worker can catch and handle gracefully
+        // Ném một lỗi đặc biệt mà worker có thể bắt và xử lý một cách graceful
+        const skipError = new Error(`Skipping paragraph: ${reason}`);
+        skipError.name = 'SkipError';
+        skipError.isSkip = true;
+        skipError.reason = reason;
+        throw skipError;
+      }
+      
       // Extract file metadata from headers
       const fileId = response.headers['x-file-id'] || response.headers['X-File-Id'];
       const requestId = response.headers['x-request-id'] || response.headers['X-Request-Id'];
@@ -184,6 +200,12 @@ export class TTSService {
       console.log(`[TTS Service] [generateAudio] Result:`, JSON.stringify(result, null, 2));
       return result;
     } catch (error) {
+      // Re-throw skip errors as-is so worker can handle them
+      // Ném lại lỗi skip như cũ để worker có thể xử lý
+      if (error.isSkip || error.name === 'SkipError') {
+        throw error;
+      }
+      
       console.error(`[TTS Service] [generateAudio] ❌ ERROR occurred!`);
       console.error(`[TTS Service] [generateAudio] ❌ Đã xảy ra LỖI!`);
       console.error(`[TTS Service] [generateAudio] Error message: ${error.message}`);
@@ -191,7 +213,26 @@ export class TTSService {
       if (error.response) {
         console.error(`[TTS Service] [generateAudio] Response status: ${error.response.status}`);
         console.error(`[TTS Service] [generateAudio] Response data:`, JSON.stringify(error.response.data, null, 2));
-        throw new Error(`TTS API error: ${error.response.data?.detail || error.response.statusText}`);
+        
+        // Check if error response indicates skipped paragraph
+        // Kiểm tra xem phản hồi lỗi có cho biết paragraph bị bỏ qua không
+        const errorDetail = error.response.data?.detail || '';
+        const isSkipError = errorDetail.includes('meaningless') || 
+                           errorDetail.includes('too short') || 
+                           errorDetail.includes('only punctuation') ||
+                           errorDetail.includes('separator');
+        
+        if (isSkipError && error.response.status === 400) {
+          // Treat validation errors for meaningless text as skip errors
+          // Xử lý lỗi validation cho text vô nghĩa như lỗi skip
+          const skipError = new Error(`Skipping paragraph: ${errorDetail}`);
+          skipError.name = 'SkipError';
+          skipError.isSkip = true;
+          skipError.reason = errorDetail;
+          throw skipError;
+        }
+        
+        throw new Error(`TTS API error: ${errorDetail || error.response.statusText}`);
       } else if (error.request) {
         console.error(`[TTS Service] [generateAudio] No response received from TTS backend`);
         throw new Error('TTS backend not responding. Is it running?');
