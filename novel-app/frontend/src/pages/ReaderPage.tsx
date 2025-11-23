@@ -90,7 +90,8 @@ function ReaderPage() {
       try {
         // Try to get existing audio files
         const audioFiles = await audioService.getChapterAudio(id, chapterNumber)
-        if (audioFiles && audioFiles.length > 0) {
+        // getChapterAudio always returns an array (never null)
+        if (audioFiles && Array.isArray(audioFiles) && audioFiles.length > 0) {
           setAudioFiles(audioFiles)
         } else {
           // No audio files found - user can generate them
@@ -116,11 +117,31 @@ function ReaderPage() {
         const stats = await generationService.getChapterStats(id, chapterNumber)
         updateProgress(stats)
         
-        // If all completed, reload audio files
-        if (stats.completed === stats.total && stats.total > 0) {
-          const audioFiles = await audioService.getChapterAudio(id, chapterNumber)
-          if (audioFiles) {
-            setAudioFiles(audioFiles)
+        // Reload audio files periodically during generation to show new files as they're created
+        // Reload audio files định kỳ trong quá trình generation để hiển thị các file mới khi chúng được tạo
+        // Only reload if there's progress (new files generated)
+        // Chỉ reload nếu có tiến độ (có file mới được tạo)
+        if (stats.completed > 0) {
+          try {
+            const audioFiles = await audioService.getChapterAudio(id, chapterNumber)
+            // getChapterAudio always returns an array (never null)
+            if (audioFiles && Array.isArray(audioFiles) && audioFiles.length > 0) {
+              // Only update if we have more files than before (or if we had none)
+              // Chỉ cập nhật nếu chúng ta có nhiều file hơn trước (hoặc nếu chúng ta không có file nào)
+              setAudioFiles(prevFiles => {
+                // Ensure prevFiles is an array
+                const prevArray = Array.isArray(prevFiles) ? prevFiles : []
+                // Only update if new count is greater, to avoid flickering
+                // Chỉ cập nhật nếu số lượng mới lớn hơn, để tránh nhấp nháy
+                if (audioFiles.length > prevArray.length) {
+                  return audioFiles
+                }
+                return prevArray
+              })
+            }
+          } catch (audioError) {
+            // Non-critical: audio loading can fail during generation
+            // Không quan trọng: việc tải audio có thể thất bại trong quá trình generation
           }
         }
       } catch (error) {

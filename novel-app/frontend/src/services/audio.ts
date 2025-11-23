@@ -8,16 +8,17 @@ import type { AudioFilesResponse, WorkerGenerateResponse } from '../types'
 export const getChapterAudio = async (
   novelId: string,
   chapterNumber: number
-): Promise<AudioFilesResponse['audioFiles'] | null> => {
+): Promise<AudioFile[]> => {
   try {
     const response = await api.get<AudioFilesResponse>(`/audio/${novelId}/${chapterNumber}`)
-    return response.data.audioFiles || null
+    // Always return an array, never null
+    return Array.isArray(response.data.audioFiles) ? response.data.audioFiles : []
   } catch (error) {
-    // If audio files don't exist, return null instead of throwing
+    // If audio files don't exist, return empty array instead of null
     if (error && typeof error === 'object' && 'response' in error) {
       const axiosError = error as { response?: { status?: number } }
       if (axiosError.response?.status === 404) {
-        return null
+        return []
       }
     }
     throw error
