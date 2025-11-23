@@ -38,7 +38,9 @@ export const useAudioStore = create<AudioState>((set) => ({
   isLoading: false,
   currentAudio: null,
   
-  setAudioFiles: (files: AudioFile[]) => set({ audioFiles: files }),
+  setAudioFiles: (files: AudioFile[] | null | undefined) => set({ 
+    audioFiles: Array.isArray(files) ? files : [] 
+  }),
   setCurrentAudioIndex: (index: number) => set({ currentAudioIndex: index }),
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),

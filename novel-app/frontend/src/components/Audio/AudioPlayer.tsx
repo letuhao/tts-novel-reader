@@ -41,7 +41,7 @@ function AudioPlayer() {
     setCurrentAudio,
   } = useAudioStore()
 
-  const { novelId, chapterNumber, currentParagraphNumber, setCurrentParagraph } = useReaderStore()
+  const { novelId, chapterNumber, currentParagraphNumber, paragraphs, setCurrentParagraph } = useReaderStore()
   const { saveProgress } = useProgressStore()
   
   const [currentHowl, setCurrentHowl] = useState<Howl | null>(null)
@@ -51,7 +51,8 @@ function AudioPlayer() {
 
   // Initialize audio files when chapter changes
   useEffect(() => {
-    if (!novelId || !chapterNumber || audioFiles.length === 0) {
+    // Ensure audioFiles is always an array
+    if (!novelId || !chapterNumber || !Array.isArray(audioFiles) || audioFiles.length === 0) {
       setShowPlayer(false)
       
       // Clean up existing audio when hiding player
@@ -91,6 +92,12 @@ function AudioPlayer() {
     }
 
     // Find starting paragraph index
+    // Ensure audioFiles is an array before using findIndex
+    if (!Array.isArray(audioFiles)) {
+      console.warn('[AudioPlayer] audioFiles is not an array:', audioFiles)
+      return
+    }
+    
     const startIndex = currentParagraphNumber 
       ? audioFiles.findIndex(f => f.paragraphNumber === currentParagraphNumber) 
       : 0
@@ -114,11 +121,12 @@ function AudioPlayer() {
         progressIntervalRef.current = null
       }
     }
-  }, [novelId, chapterNumber, audioFiles.length, currentParagraphNumber, setCurrentAudioIndex])
+  }, [novelId, chapterNumber, Array.isArray(audioFiles) ? audioFiles.length : 0, currentParagraphNumber, setCurrentAudioIndex])
 
   // Load and play current audio file
   useEffect(() => {
-    if (!showPlayer || audioFiles.length === 0 || currentAudioIndex < 0 || currentAudioIndex >= audioFiles.length) {
+    // Ensure audioFiles is an array
+    if (!showPlayer || !Array.isArray(audioFiles) || audioFiles.length === 0 || currentAudioIndex < 0 || currentAudioIndex >= audioFiles.length) {
       return
     }
 
@@ -427,7 +435,7 @@ function AudioPlayer() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-              Chapter {chapterNumber} - Paragraph {currentFile?.paragraphNumber || 0} / {audioFiles.length}
+              Chapter {chapterNumber} - Paragraph {currentFile?.paragraphNumber || 0} / {paragraphs?.length || audioFiles.length}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-400">
               {currentFile 

@@ -5,16 +5,16 @@ Write-Host "=== Restarting All Servers (Backends + Frontend) ===" -ForegroundCol
 Write-Host "=== Khởi động lại Tất cả Server (Backends + Frontend) ===" -ForegroundColor Cyan
 Write-Host ""
 
-# Stop VieNeu-TTS Backend (using new backend)
-Write-Host "Stopping VieNeu-TTS Backend..." -ForegroundColor Yellow
-Write-Host "Đang dừng VieNeu-TTS Backend..." -ForegroundColor Yellow
-cd tts\vieneu-tts-backend
+# Stop VietTTS Backend
+Write-Host "Stopping VietTTS Backend..." -ForegroundColor Yellow
+Write-Host "Đang dừng VietTTS Backend..." -ForegroundColor Yellow
+cd tts\dangvansam-VietTTS-backend
 if (Test-Path "stop_backend.py") {
+    # Use Python script to avoid antivirus blocking
     python stop_backend.py
-} elseif (Test-Path "..\..\app\stop_backend.py") {
-    # Fallback to old backend if new one doesn't exist
-    cd ..\..\app
-    python stop_backend.py
+} else {
+    Write-Host "   ⚠️  No stop script found!" -ForegroundColor Yellow
+    Write-Host "   ⚠️  Không tìm thấy script dừng!" -ForegroundColor Yellow
 }
 Start-Sleep -Seconds 2
 
@@ -46,22 +46,19 @@ if ($frontendProcess) {
 }
 Start-Sleep -Seconds 2
 
-# Start VieNeu-TTS Backend (using new backend)
+# Start VietTTS Backend
 Write-Host ""
-Write-Host "Starting VieNeu-TTS Backend..." -ForegroundColor Cyan
-Write-Host "Đang khởi động VieNeu-TTS Backend..." -ForegroundColor Cyan
-cd ..\..\tts\vieneu-tts-backend
+Write-Host "Starting VietTTS Backend..." -ForegroundColor Cyan
+Write-Host "Đang khởi động VietTTS Backend..." -ForegroundColor Cyan
+cd ..\..\tts\dangvansam-VietTTS-backend
 if (Test-Path "start_backend.py") {
+    # Use Python script to avoid antivirus blocking
     python start_backend.py
 } elseif (Test-Path "start_backend.ps1") {
     .\start_backend.ps1
-} elseif (Test-Path "run.ps1") {
-    # Use run.ps1 if start_backend scripts don't exist
-    Start-Process pwsh -ArgumentList "-File", "run.ps1" -NoNewWindow
-} elseif (Test-Path "..\..\app\start_backend.py") {
-    # Fallback to old backend if new one doesn't exist
-    cd ..\..\app
-    python start_backend.py
+} else {
+    Write-Host "   ⚠️  No start script found!" -ForegroundColor Yellow
+    Write-Host "   ⚠️  Không tìm thấy script khởi động!" -ForegroundColor Yellow
 }
 Start-Sleep -Seconds 5
 
@@ -133,11 +130,11 @@ $frontend = try {
 }
 
 if ($tts) {
-    Write-Host "✅ VieNeu-TTS Backend (port 11111): Running" -ForegroundColor Green
-    Write-Host "✅ VieNeu-TTS Backend (port 11111): Đang chạy" -ForegroundColor Green
+    Write-Host "✅ VietTTS Backend (port 11111): Running" -ForegroundColor Green
+    Write-Host "✅ VietTTS Backend (port 11111): Đang chạy" -ForegroundColor Green
 } else {
-    Write-Host "❌ VieNeu-TTS Backend (port 11111): Not responding" -ForegroundColor Red
-    Write-Host "❌ VieNeu-TTS Backend (port 11111): Không phản hồi" -ForegroundColor Red
+    Write-Host "❌ VietTTS Backend (port 11111): Not responding" -ForegroundColor Red
+    Write-Host "❌ VietTTS Backend (port 11111): Không phản hồi" -ForegroundColor Red
 }
 
 if ($novel) {
@@ -161,7 +158,7 @@ Write-Host "=== All Servers Restarted! ===" -ForegroundColor Green
 Write-Host "=== Tất cả Server đã được Khởi động lại! ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "📋 Server URLs:" -ForegroundColor Cyan
-Write-Host "  - VieNeu-TTS Backend: http://127.0.0.1:11111" -ForegroundColor White
+Write-Host "  - VietTTS Backend: http://127.0.0.1:11111" -ForegroundColor White
 Write-Host "  - Novel Backend: http://127.0.0.1:11110" -ForegroundColor White
 Write-Host "  - Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host ""
