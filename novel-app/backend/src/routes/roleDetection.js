@@ -5,6 +5,7 @@
 import express from 'express';
 import { getRoleDetectionService } from '../services/roleDetectionService.js';
 import { getVoiceMapping } from '../utils/voiceMapping.js';
+import { getRoleDetectionWorker } from '../services/roleDetectionWorker.js';
 
 const router = express.Router();
 
@@ -160,6 +161,118 @@ router.put('/voices', (req, res, next) => {
 
   } catch (error) {
     console.error('[RoleDetection] Update voices error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/role-detection/detect-novel
+ * Detect roles for all chapters in a novel (delegates to worker)
+ * Phát hiện vai diễn cho tất cả chapters trong một novel (ủy thác cho worker)
+ * 
+ * Body:
+ * {
+ *   novelId: string,
+ *   overwriteComplete?: boolean,  // Default: false (skip complete chapters)
+ *   updateProgress?: boolean,      // Default: true
+ *   saveMetadata?: boolean         // Default: true
+ * }
+ */
+router.post('/detect-novel', async (req, res, next) => {
+  try {
+    const { 
+      novelId, 
+      overwriteComplete = false,
+      updateProgress = true, 
+      saveMetadata = true 
+    } = req.body;
+
+    // Validate input
+    if (!novelId) {
+      return res.status(400).json({
+        success: false,
+        error: 'novelId is required'
+      });
+    }
+
+    console.log(`[RoleDetection] API: Detecting roles for novel ${novelId}`);
+
+    // Get worker and novel
+    const { NovelModel } = await import('../models/Novel.js');
+    const novel = await NovelModel.getById(novelId);
+    
+    if (!novel) {
+      return res.status(404).json({
+        success: false,
+        error: 'Novel not found'
+      });
+    }
+
+    const worker = getRoleDetectionWorker();
+
+    // Create overall progress entry
+    const { GenerationProgressModel } = await import('../models/GenerationProgress.js');
+    const progress = await GenerationProgressModel.createOrUpdate({
+      novelId: novelId,
+      status: 'pending',
+      model: 'role-detection-novel',
+      progressPercent: 0,
+      startedAt: new Date().toISOString()
+    });
+
+    // Run detection in background (don't await)
+    worker.detectNovelRoles(novelId, {
+      overwriteComplete: overwriteComplete,
+      updateProgress: updateProgress,
+      saveMetadata: saveMetadata
+    }).catch(error => {
+      console.error(`[RoleDetection] Background novel detection error: ${error.message}`);
+      // Update progress to failed
+      GenerationProgressModel.update(progress.id, {
+        status: 'failed',
+        errorMessage: error.message,
+        completedAt: new Date().toISOString()
+      }).catch(updateError => {
+        console.error(`[RoleDetection] Failed to update progress: ${updateError.message}`);
+      });
+    });
+
+    // Return immediately with progressId
+    res.json({
+      success: true,
+      message: 'Novel role detection started in background',
+      progressId: progress.id,
+      data: {
+        novelId: novelId,
+        novelTitle: novel.title,
+        status: 'pending'
+      }
+    });
+
+  } catch (error) {
+    console.error('[RoleDetection] API Error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/role-detection/novel-status/:novelId
+ * Get role detection status for entire novel
+ * Lấy trạng thái phát hiện vai diễn cho toàn bộ novel
+ */
+router.get('/novel-status/:novelId', async (req, res, next) => {
+  try {
+    const { novelId } = req.params;
+    
+    const worker = getRoleDetectionWorker();
+    const status = await worker.getNovelRoleStatus(novelId);
+    
+    res.json({
+      success: true,
+      data: status
+    });
+  } catch (error) {
+    console.error('[RoleDetection] Novel status error:', error);
     next(error);
   }
 });

@@ -8,6 +8,8 @@ Wrapper này sử dụng CÙNG môi trường với VietTTS để đảm bảo 1
 import sys
 import warnings
 import os
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import torch
@@ -120,6 +122,10 @@ class VietTTSWrapper:
         # Load available voices
         self.voice_map = load_voices(self.voice_samples_dir)
         
+        # Cache for loaded prompt speech (to avoid reloading from disk each time)
+        # Cache cho prompt speech đã tải (để tránh tải lại từ disk mỗi lần)
+        self._prompt_speech_cache = {}
+        
         # Initialize model
         print(f"🖥️  Using device: {self.device}")
         print(f"🖥️  Sử dụng thiết bị: {self.device}")
@@ -139,11 +145,39 @@ class VietTTSWrapper:
         
         print("✅ VietTTS loaded successfully")
         print("✅ VietTTS đã được tải thành công")
+        
+        # Preload common voices to avoid disk I/O delay on first use
+        # Tải trước các giọng phổ biến để tránh độ trễ I/O disk khi dùng lần đầu
+        self._preload_common_voices()
+    
+    def _preload_common_voices(self):
+        """
+        Preload common voices to avoid disk I/O delay on first use.
+        Tải trước các giọng phổ biến để tránh độ trễ I/O disk khi dùng lần đầu.
+        """
+        common_voices = ["quynh", "cdteam", "nu-nhe-nhang"]  # Most commonly used voices
+        print("📦 Preloading common voices to memory...")
+        print("📦 Đang tải trước các giọng phổ biến vào memory...")
+        
+        for voice_name in common_voices:
+            if voice_name in self.voice_map:
+                try:
+                    voice_file = self.voice_map[voice_name]
+                    if voice_name not in self._prompt_speech_cache:
+                        self._prompt_speech_cache[voice_name] = load_prompt_speech_from_file(voice_file)
+                        print(f"   ✅ Preloaded voice: {voice_name}")
+                except Exception as e:
+                    print(f"   ⚠️  Failed to preload voice {voice_name}: {e}")
+        
+        print("✅ Common voices preloaded")
+        print("✅ Các giọng phổ biến đã được tải trước")
     
     def warmup(self, voice_name: Optional[str] = None):
         """
         Warmup model with a dummy inference to prepare GPU for fast inference.
+        This compiles CUDA kernels once at startup, eliminating the 10s setup delay per request.
         Làm nóng model với inference giả để chuẩn bị GPU cho inference nhanh.
+        Điều này compile CUDA kernels một lần khi khởi động, loại bỏ độ trễ setup 10s mỗi request.
         
         Args:
             voice_name: Optional voice name for warmup / Tên giọng tùy chọn để warmup
@@ -153,35 +187,42 @@ class VietTTSWrapper:
             print("ℹ️  Bỏ qua warmup (chế độ CPU)")
             return
         
-        print("🔥 Warming up model (preparing GPU for fast inference)...")
-        print("🔥 Đang làm nóng model (chuẩn bị GPU cho inference nhanh)...")
+        print("🔥 Warming up model (compiling CUDA kernels - this eliminates 10s setup delay per request)...")
+        print("🔥 Đang làm nóng model (compile CUDA kernels - điều này loại bỏ độ trễ setup 10s mỗi request)...")
         
         try:
             # Use default voice if not provided
             if not voice_name:
-                voice_name = "cdteam"  # Default voice
+                voice_name = "quynh"  # Default voice for novel reader
             
             # Get voice file
             voice_file = self.voice_map.get(voice_name)
             if not voice_file:
                 voice_file = list(self.voice_map.values())[0]
             
-            # Load voice
-            prompt_speech = load_prompt_speech_from_file(voice_file)
+            # Load voice (will be cached)
+            # Tải giọng (sẽ được cache)
+            cache_key = voice_name if voice_name in self.voice_map else "default"
+            if cache_key not in self._prompt_speech_cache:
+                self._prompt_speech_cache[cache_key] = load_prompt_speech_from_file(voice_file)
+            prompt_speech = self._prompt_speech_cache[cache_key]
             
             # Short dummy text for warmup
             dummy_text = "Xin chào."
             
             # Perform a dummy inference to warmup the model and GPU
-            print("   Running warmup inference (this may take 30-60 seconds)...")
-            print("   Đang chạy warmup inference (có thể mất 30-60 giây)...")
+            # This compiles CUDA kernels once, eliminating setup delay on subsequent requests
+            # Thực hiện inference giả để warmup model và GPU
+            # Điều này compile CUDA kernels một lần, loại bỏ độ trễ setup ở các request tiếp theo
+            print("   Running warmup inference (compiling CUDA kernels - one-time cost)...")
+            print("   Đang chạy warmup inference (compile CUDA kernels - chi phí một lần)...")
             
             _ = self.model.tts_to_wav(dummy_text, prompt_speech, speed=1.0)
             
-            print("✅ Model warmup completed!")
-            print("✅ Model warmup hoàn tất!")
-            print("   Model is now optimized and ready for fast inference!")
-            print("   Model đã được tối ưu và sẵn sàng cho inference nhanh!")
+            print("✅ Model warmup completed! CUDA kernels compiled - no more 10s setup delay!")
+            print("✅ Model warmup hoàn tất! CUDA kernels đã compile - không còn độ trễ setup 10s!")
+            print("   Subsequent requests will be fast (near real-time)")
+            print("   Các request tiếp theo sẽ nhanh (gần real-time)")
         except Exception as e:
             # Suppress WinError 193 warnings - it's handled by the frontend patch
             # ONNX Runtime will use CPU if CUDA DLL fails, but PyTorch models use GPU
@@ -241,29 +282,241 @@ class VietTTSWrapper:
         Returns:
             Audio array (numpy array) / Mảng audio (numpy array)
         """
-        # Determine voice file
+        total_start = time.time()
+        print(f"\n{'='*60}")
+        print(f"[PERF] Starting synthesis - Text length: {len(text)} chars")
+        print(f"[PERF] Bắt đầu synthesis - Độ dài text: {len(text)} ký tự")
+        print(f"{'='*60}")
+        
+        # Step 1: Determine voice file / Bước 1: Xác định file giọng
+        step_start = time.time()
         if voice_file:
             prompt_speech_file = voice_file
+            cache_key = voice_file
         elif voice:
             prompt_speech_file = self.voice_map.get(voice)
             if not prompt_speech_file:
                 raise ValueError(f"Voice '{voice}' not found. Available voices: {list(self.voice_map.keys())}")
+            cache_key = voice
         else:
             # Use default voice
             prompt_speech_file = list(self.voice_map.values())[0]
+            cache_key = "default"
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF] Step 1 - Voice selection: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [PERF] Bước 1 - Chọn giọng: {step_duration*1000:.2f}ms")
         
-        # Load prompt speech once
-        prompt_speech = load_prompt_speech_from_file(prompt_speech_file)
+        # Step 2: Load prompt speech from cache / Bước 2: Tải prompt speech từ cache
+        step_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        if cache_key not in self._prompt_speech_cache:
+            print(f"[{timestamp}] [PERF] Voice '{cache_key}' not in cache, loading from disk...")
+            print(f"[{timestamp}] [PERF] Giọng '{cache_key}' chưa có trong cache, đang tải từ disk...")
+            load_start = time.time()
+            self._prompt_speech_cache[cache_key] = load_prompt_speech_from_file(prompt_speech_file)
+            load_duration = time.time() - load_start
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF]   Voice loaded from disk: {load_duration:.3f}s")
+            print(f"[{timestamp}] [PERF]   Đã tải giọng từ disk: {load_duration:.3f}s")
+        else:
+            print(f"[{timestamp}] [PERF] Voice '{cache_key}' found in cache (instant)")
+            print(f"[{timestamp}] [PERF] Giọng '{cache_key}' có trong cache (tức thời)")
         
-        # Standard processing - VietTTS handles chunking internally
-        # The batch_chunks parameter is reserved for future optimization
-        # Xử lý tiêu chuẩn - VietTTS xử lý chunking nội bộ
-        # Tham số batch_chunks được dành cho tối ưu hóa tương lai
-        wav = self.model.tts_to_wav(text, prompt_speech, speed=speed)
+        prompt_speech = self._prompt_speech_cache[cache_key]
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF] Step 2 - Voice loading: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [PERF] Bước 2 - Tải giọng: {step_duration*1000:.2f}ms")
         
-        # Save if output path provided
+        # Step 3: Validate text / Bước 3: Xác thực văn bản
+        step_start = time.time()
+        text = text.strip() if isinstance(text, str) else str(text).strip()
+        
+        if not text or len(text) == 0:
+            raise ValueError(
+                f"Text is empty. Cannot generate audio from empty text."
+            )
+        
+        meaningful_text = ''.join(c for c in text if c.isalnum() or c.isspace()).strip()
+        
+        if len(text) < 10 or len(meaningful_text) < 5:
+            raise ValueError(
+                f"Text is too short or contains only punctuation (length: {len(text)}, meaningful: {len(meaningful_text)}). "
+                f"Minimum length: 10 characters with at least 5 meaningful characters. "
+                f"Text: '{text[:50] if text else 'None'}...'"
+            )
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF] Step 3 - Text validation: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [PERF] Bước 3 - Xác thực text: {step_duration*1000:.2f}ms")
+        
+        # Step 4: Generate audio (MAIN BOTTLENECK) / Bước 4: Tạo audio (ĐIỂM NGHẼN CHÍNH)
+        step_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF] Step 4 - Starting audio generation (this is the main step)...")
+        print(f"[{timestamp}] [PERF] Bước 4 - Bắt đầu tạo audio (đây là bước chính)...")
+        try:
+            # Add detailed timing for each step inside tts_to_wav
+            # Thêm timing chi tiết cho từng bước bên trong tts_to_wav
+            wav = self._synthesize_with_detailed_timing(text, prompt_speech, speed)
+        except ValueError as e:
+            if "need at least one array" in str(e).lower() or "concatenate" in str(e).lower():
+                raise ValueError(
+                    f"Text processing resulted in empty chunks. "
+                    f"Text length: {len(text)} chars. "
+                    f"Text preview: {text[:100]}... "
+                    f"Original error: {e}"
+                )
+            raise
+        
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF] Step 4 - Audio generation: {step_duration:.3f}s")
+        print(f"[{timestamp}] [PERF] Bước 4 - Tạo audio: {step_duration:.3f}s")
+        
+        # Step 5: Validate output / Bước 5: Xác thực đầu ra
+        step_start = time.time()
+        if wav is None or len(wav) == 0:
+            raise ValueError(
+                f"Generated audio is empty. "
+                f"Text length: {len(text)} chars. "
+                f"Text preview: {text[:100]}..."
+            )
+        step_duration = time.time() - step_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF] Step 5 - Output validation: {step_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [PERF] Bước 5 - Xác thực đầu ra: {step_duration*1000:.2f}ms")
+        
+        # Step 6: Save if needed / Bước 6: Lưu nếu cần
+        step_start = time.time()
         if output_path:
             sf.write(output_path, wav, self.sample_rate)
+        step_duration = time.time() - step_start
+        if output_path:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF] Step 6 - Save to file: {step_duration*1000:.2f}ms")
+            print(f"[{timestamp}] [PERF] Bước 6 - Lưu file: {step_duration*1000:.2f}ms")
+        
+        # Total duration
+        total_duration = time.time() - total_start
+        audio_duration = len(wav) / self.sample_rate if wav is not None else 0
+        ratio = total_duration / audio_duration if audio_duration > 0 else 0
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        print(f"{'='*60}")
+        print(f"[{timestamp}] [PERF] SUMMARY / TỔNG KẾT:")
+        print(f"[{timestamp}] [PERF]   Total time: {total_duration:.3f}s")
+        print(f"[{timestamp}] [PERF]   Tổng thời gian: {total_duration:.3f}s")
+        print(f"[{timestamp}] [PERF]   Audio duration: {audio_duration:.3f}s")
+        print(f"[{timestamp}] [PERF]   Độ dài audio: {audio_duration:.3f}s")
+        print(f"[{timestamp}] [PERF]   Speed ratio: {ratio:.2f}x ({'✅ Real-time' if ratio <= 1.2 else '⚠️ Slower' if ratio <= 2.0 else '❌ Too slow'})")
+        print(f"[{timestamp}] [PERF]   Tỷ lệ tốc độ: {ratio:.2f}x ({'✅ Real-time' if ratio <= 1.2 else '⚠️ Chậm hơn' if ratio <= 2.0 else '❌ Quá chậm'})")
+        print(f"{'='*60}\n")
+        
+        return wav
+    
+    def _synthesize_with_detailed_timing(self, text: str, prompt_speech, speed: float) -> np.ndarray:
+        """
+        Synthesize with detailed timing logs to identify bottlenecks.
+        Tổng hợp với timing logs chi tiết để xác định điểm nghẽn.
+        """
+        total_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF-DETAIL] Starting detailed synthesis timing...")
+        print(f"[{timestamp}] [PERF-DETAIL] Bắt đầu timing chi tiết synthesis...")
+        
+        wavs = []
+        chunk_count = 0
+        
+        # Step 4.1: Text preprocessing / Bước 4.1: Xử lý text trước
+        preprocess_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF-DETAIL] Step 4.1 - Starting text preprocessing...")
+        print(f"[{timestamp}] [PERF-DETAIL] Bước 4.1 - Bắt đầu xử lý text trước...")
+        preprocessed_chunks = list(self.model.frontend.preprocess_text(text, split=True))
+        preprocess_duration = time.time() - preprocess_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF-DETAIL] Step 4.1 - Text preprocessing completed: {preprocess_duration:.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL] Bước 4.1 - Xử lý text trước hoàn tất: {preprocess_duration:.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL]   Number of chunks: {len(preprocessed_chunks)}")
+        print(f"[{timestamp}] [PERF-DETAIL]   Số lượng chunks: {len(preprocessed_chunks)}")
+        
+        # Step 4.2: Process each chunk / Bước 4.2: Xử lý từng chunk
+        total_frontend_time = 0
+        total_model_time = 0
+        
+        for chunk_idx, chunk_text in enumerate(preprocessed_chunks):
+            chunk_start = time.time()
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF-DETAIL] Step 4.2.{chunk_idx + 1} - Processing chunk {chunk_idx + 1}/{len(preprocessed_chunks)}...")
+            print(f"[{timestamp}] [PERF-DETAIL] Bước 4.2.{chunk_idx + 1} - Đang xử lý chunk {chunk_idx + 1}/{len(preprocessed_chunks)}...")
+            print(f"[{timestamp}] [PERF-DETAIL]   Chunk text length: {len(chunk_text)} chars")
+            print(f"[{timestamp}] [PERF-DETAIL]   Độ dài text chunk: {len(chunk_text)} ký tự")
+            
+            # Step 4.2.1: Frontend processing / Bước 4.2.1: Xử lý frontend
+            frontend_start = time.time()
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF-DETAIL]   Step 4.2.{chunk_idx + 1}.1 - Frontend processing (ONNX - may be CPU)...")
+            print(f"[{timestamp}] [PERF-DETAIL]   Bước 4.2.{chunk_idx + 1}.1 - Xử lý frontend (ONNX - có thể là CPU)...")
+            model_input = self.model.frontend.frontend_tts(chunk_text, prompt_speech)
+            frontend_duration = time.time() - frontend_start
+            total_frontend_time += frontend_duration
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF-DETAIL]   Step 4.2.{chunk_idx + 1}.1 - Frontend completed: {frontend_duration:.3f}s")
+            print(f"[{timestamp}] [PERF-DETAIL]   Bước 4.2.{chunk_idx + 1}.1 - Frontend hoàn tất: {frontend_duration:.3f}s")
+            
+            # Step 4.2.2: Model inference / Bước 4.2.2: Inference model
+            model_start = time.time()
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF-DETAIL]   Step 4.2.{chunk_idx + 1}.2 - Model inference (PyTorch GPU)...")
+            print(f"[{timestamp}] [PERF-DETAIL]   Bước 4.2.{chunk_idx + 1}.2 - Inference model (PyTorch GPU)...")
+            for model_output in self.model.model.tts(**model_input, stream=False, speed=speed):
+                wavs.append(model_output['tts_speech'].squeeze(0).numpy())
+                chunk_count += 1
+            model_duration = time.time() - model_start
+            total_model_time += model_duration
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF-DETAIL]   Step 4.2.{chunk_idx + 1}.2 - Model inference completed: {model_duration:.3f}s")
+            print(f"[{timestamp}] [PERF-DETAIL]   Bước 4.2.{chunk_idx + 1}.2 - Inference model hoàn tất: {model_duration:.3f}s")
+            
+            chunk_duration = time.time() - chunk_start
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{timestamp}] [PERF-DETAIL] Step 4.2.{chunk_idx + 1} - Chunk {chunk_idx + 1} total: {chunk_duration:.3f}s")
+            print(f"[{timestamp}] [PERF-DETAIL] Bước 4.2.{chunk_idx + 1} - Chunk {chunk_idx + 1} tổng: {chunk_duration:.3f}s")
+        
+        # Step 4.3: Concatenate audio chunks / Bước 4.3: Nối các chunks audio
+        concat_start = time.time()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF-DETAIL] Step 4.3 - Concatenating {len(wavs)} audio chunks...")
+        print(f"[{timestamp}] [PERF-DETAIL] Bước 4.3 - Đang nối {len(wavs)} chunks audio...")
+        wav = np.concatenate(wavs, axis=0)
+        concat_duration = time.time() - concat_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF-DETAIL] Step 4.3 - Concatenation completed: {concat_duration*1000:.2f}ms")
+        print(f"[{timestamp}] [PERF-DETAIL] Bước 4.3 - Nối hoàn tất: {concat_duration*1000:.2f}ms")
+        
+        # Summary
+        total_duration = time.time() - total_start
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}] [PERF-DETAIL] DETAILED TIMING SUMMARY:")
+        print(f"[{timestamp}] [PERF-DETAIL] TỔNG KẾT TIMING CHI TIẾT:")
+        print(f"[{timestamp}] [PERF-DETAIL]   Text preprocessing: {preprocess_duration:.3f}s ({preprocess_duration/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Xử lý text trước: {preprocess_duration:.3f}s ({preprocess_duration/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Frontend processing (ONNX): {total_frontend_time:.3f}s ({total_frontend_time/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Xử lý frontend (ONNX): {total_frontend_time:.3f}s ({total_frontend_time/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Model inference (PyTorch GPU): {total_model_time:.3f}s ({total_model_time/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Inference model (PyTorch GPU): {total_model_time:.3f}s ({total_model_time/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Audio concatenation: {concat_duration:.3f}s ({concat_duration/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Nối audio: {concat_duration:.3f}s ({concat_duration/total_duration*100:.1f}%)")
+        print(f"[{timestamp}] [PERF-DETAIL]   Total: {total_duration:.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL]   Tổng: {total_duration:.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL]   Number of chunks: {len(preprocessed_chunks)}")
+        print(f"[{timestamp}] [PERF-DETAIL]   Số lượng chunks: {len(preprocessed_chunks)}")
+        print(f"[{timestamp}] [PERF-DETAIL]   Average frontend time per chunk: {total_frontend_time/len(preprocessed_chunks):.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL]   Thời gian frontend trung bình mỗi chunk: {total_frontend_time/len(preprocessed_chunks):.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL]   Average model time per chunk: {total_model_time/len(preprocessed_chunks):.3f}s")
+        print(f"[{timestamp}] [PERF-DETAIL]   Thời gian model trung bình mỗi chunk: {total_model_time/len(preprocessed_chunks):.3f}s")
         
         return wav
     

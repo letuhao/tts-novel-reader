@@ -10,11 +10,11 @@ export class TTSService {
     this.baseURL = baseURL || process.env.TTS_BACKEND_URL || 'http://127.0.0.1:11111';
     this.defaultSpeaker = process.env.TTS_DEFAULT_SPEAKER || '05';
     this.defaultExpiryHours = parseInt(process.env.TTS_DEFAULT_EXPIRY_HOURS || '365');
-    // Changed default to vieneu-tts (100% compatible backend)
-    // Đã đổi mặc định sang vieneu-tts (backend tương thích 100%)
-    this.defaultModel = process.env.TTS_DEFAULT_MODEL || 'vieneu-tts';
-    // VieNeu-TTS defaults / Mặc định VieNeu-TTS
-    this.defaultVoice = process.env.TTS_DEFAULT_VOICE || 'id_0004'; // Female voice / Giọng nữ
+    // Changed default to viettts (VietTTS backend)
+    // Đã đổi mặc định sang viettts (VietTTS backend)
+    this.defaultModel = process.env.TTS_DEFAULT_MODEL || 'viettts';
+    // VietTTS defaults / Mặc định VietTTS
+    this.defaultVoice = process.env.TTS_DEFAULT_VOICE || 'quynh'; // Default voice / Giọng mặc định
     this.defaultAutoVoice = process.env.TTS_AUTO_VOICE === 'true';
     this.defaultAutoChunk = process.env.TTS_AUTO_CHUNK !== 'false'; // Default true
     this.defaultMaxChars = parseInt(process.env.TTS_MAX_CHARS || '256');
@@ -64,39 +64,57 @@ export class TTSService {
       console.log(`[TTS Service] [generateAudio] Đang gửi yêu cầu tới TTS backend...`);
       console.log(`[TTS Service] [generateAudio] URL: ${this.baseURL}/api/tts/synthesize`);
       console.log(`[TTS Service] [generateAudio] Text length: ${formattedText.length} chars`);
-      console.log(`[TTS Service] [generateAudio] Model: ${model}${model === 'vieneu-tts' ? `, Voice: ${voice}` : `, Speaker: ${speakerId}`}`);
+      const modelInfo = (model === 'viettts' || model === 'viet-tts') 
+        ? `, Voice: ${voice}, Speed: ${speedFactor || 1.0}`
+        : model === 'vieneu-tts' 
+          ? `, Voice: ${voice}` 
+          : `, Speaker: ${speakerId}`;
+      console.log(`[TTS Service] [generateAudio] Model: ${model}${modelInfo}`);
       
       // Build request body based on model / Xây dựng body request dựa trên model
-      const requestBody = {
-        text: formattedText,
-        model: model,
-        store: store,
-        expiry_hours: expiryHours,
-        return_audio: returnAudio
-      };
+      let requestBody;
       
-      // Add model-specific parameters / Thêm tham số riêng theo model
-      if (model === 'vieneu-tts') {
-        // VieNeu-TTS parameters / Tham số VieNeu-TTS
-        requestBody.voice = voice;
-        requestBody.auto_voice = autoVoice;
-        requestBody.auto_chunk = autoChunk;
-        requestBody.max_chars = maxChars;
-        // Optional custom reference / Tham chiếu tùy chỉnh tùy chọn
-        if (refAudioPath) {
-          requestBody.ref_audio_path = refAudioPath;
+      if (model === 'viettts' || model === 'viet-tts') {
+        // VietTTS uses simpler API format: only text, voice, speed
+        // VietTTS sử dụng định dạng API đơn giản hơn: chỉ text, voice, speed
+        requestBody = {
+          text: formattedText,
+          voice: voice || 'quynh',  // Default to 'quynh' if not specified
+          speed: speedFactor || 1.0  // Speed factor (0.8-1.2, 1.0 = normal)
+        };
+      } else {
+        // Other models (vieneu-tts, dia) use full format
+        // Các model khác (vieneu-tts, dia) sử dụng định dạng đầy đủ
+        requestBody = {
+          text: formattedText,
+          model: model,
+          store: store,
+          expiry_hours: expiryHours,
+          return_audio: returnAudio
+        };
+        
+        if (model === 'vieneu-tts') {
+          // VieNeu-TTS parameters / Tham số VieNeu-TTS
+          requestBody.voice = voice;
+          requestBody.auto_voice = autoVoice;
+          requestBody.auto_chunk = autoChunk;
+          requestBody.max_chars = maxChars;
+          // Optional custom reference / Tham chiếu tùy chỉnh tùy chọn
+          if (refAudioPath) {
+            requestBody.ref_audio_path = refAudioPath;
+          }
+          if (refText) {
+            requestBody.ref_text = refText;
+          }
+        } else if (model === 'dia') {
+          // Dia parameters / Tham số Dia
+          requestBody.temperature = temperature;
+          requestBody.top_p = top_p;
+          requestBody.cfg_scale = cfg_scale;
+          requestBody.speed_factor = speedFactor;
+          requestBody.trim_silence = trimSilence;
+          requestBody.normalize = normalize;
         }
-        if (refText) {
-          requestBody.ref_text = refText;
-        }
-      } else if (model === 'dia') {
-        // Dia parameters / Tham số Dia
-        requestBody.temperature = temperature;
-        requestBody.top_p = top_p;
-        requestBody.cfg_scale = cfg_scale;
-        requestBody.speed_factor = speedFactor;
-        requestBody.trim_silence = trimSilence;
-        requestBody.normalize = normalize;
       }
       
       const response = await axios.post(
@@ -264,6 +282,15 @@ export class TTSService {
     } catch (error) {
       if (error.response?.status === 404) {
         return false; // Already deleted or not found
+      }
+      // Some backends (like VietTTS) don't support DELETE endpoint
+      // Return false instead of throwing to allow graceful degradation
+      // Một số backend (như VietTTS) không hỗ trợ endpoint DELETE
+      // Trả về false thay vì throw để cho phép xử lý lỗi mượt mà
+      if (error.response?.status === 405) {
+        console.warn(`[TTS Service] DELETE endpoint not supported by backend (405). File will expire naturally.`);
+        console.warn(`[TTS Service] Backend không hỗ trợ endpoint DELETE (405). File sẽ tự động hết hạn.`);
+        return false;
       }
       throw new Error(`Failed to delete audio: ${error.message}`);
     }
