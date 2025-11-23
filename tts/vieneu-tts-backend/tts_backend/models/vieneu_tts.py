@@ -2,8 +2,11 @@
 VieNeu-TTS Model Wrapper
 Wrapper cho Model VieNeu-TTS
 
-This wrapper follows the EXACT pattern from VieNeu-TTS test_female_voice.py that works.
-Wrapper này tuân theo ĐÚNG pattern từ VieNeu-TTS test_female_voice.py đã hoạt động.
+This wrapper uses the SAME environment as VieNeu-TTS for 100% compatibility.
+Wrapper này sử dụng CÙNG môi trường với VieNeu-TTS để đảm bảo 100% tương thích.
+
+NO PATCHES NEEDED - We're using VieNeu-TTS's working environment!
+KHÔNG CẦN PATCH - Chúng ta đang sử dụng môi trường hoạt động của VieNeu-TTS!
 """
 import sys
 import warnings
@@ -19,65 +22,32 @@ import numpy as np
 warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 
-# CRITICAL FIX: Patch HubertModel for neucodec compatibility BEFORE importing neucodec
-# SỬA LỖI QUAN TRỌNG: Patch HubertModel cho neucodec TRƯỚC KHI import neucodec
-# This must happen before vieneu_tts imports neucodec
-# Điều này phải xảy ra trước khi vieneu_tts import neucodec
-# 
-# VieNeu-TTS's venv has HubertModel at top level, but app venv doesn't
-# VieNeu-TTS's venv có HubertModel ở top level, nhưng app venv không có
-_hubert_model_patched = False
-try:
-    # Try to import HubertModel from transformers top level
-    # Thử import HubertModel từ transformers top level
-    from transformers import HubertModel
-    _hubert_model_patched = True
-except (ImportError, AttributeError):
-    # HubertModel not at top level, need to patch it
-    # HubertModel không có ở top level, cần patch nó
-    try:
-        # Import transformers first to access the module
-        # Import transformers trước để truy cập module
-        import transformers
-        
-        # Try lazy import to avoid cascading import errors
-        # Thử lazy import để tránh lỗi import cascade
-        # We'll patch the __getattr__ to provide HubertModel on demand
-        # Chúng ta sẽ patch __getattr__ để cung cấp HubertModel khi cần
-        original_getattr = getattr(transformers, '__getattr__', None)
-        
-        def patched_getattr(name):
-            if name == 'HubertModel':
-                # Lazy import HubertModel when requested
-                # Lazy import HubertModel khi được yêu cầu
-                from transformers.models.hubert.modeling_hubert import HubertModel as _HubertModel
-                setattr(transformers, 'HubertModel', _HubertModel)
-                return _HubertModel
-            if original_getattr:
-                return original_getattr(name)
-            raise AttributeError(f"module 'transformers' has no attribute '{name}'")
-        
-        transformers.__getattr__ = patched_getattr
-        
-        # Also add to __all__ if it exists
-        # Cũng thêm vào __all__ nếu nó tồn tại
-        if hasattr(transformers, '__all__') and 'HubertModel' not in transformers.__all__:
-            transformers.__all__.append('HubertModel')
-        
-        _hubert_model_patched = True
-    except Exception as e:
-        # Patch failed, will try to work without it
-        # Patch thất bại, sẽ thử hoạt động mà không có nó
-        warnings.warn(f"Failed to patch HubertModel: {e}. VieNeu-TTS may fail to load.", UserWarning)
-
 # Add VieNeu-TTS repo to path FIRST (before any imports)
 # Thêm repo VieNeu-TTS vào path TRƯỚC (trước mọi import)
-VIENEU_REPO_PATH = Path(__file__).parent.parent.parent.parent / "tts" / "VieNeu-TTS"
+# This is the SAME setup as test_female_voice.py that works!
+# Đây là setup GIỐNG NHƯ test_female_voice.py đã hoạt động!
+# File structure: tts/vieneu-tts-backend/tts_backend/models/vieneu_tts.py
+# Go up 5 levels to project root: models -> tts_backend -> vieneu-tts-backend -> tts -> novel-reader
+# Then: project_root/tts/VieNeu-TTS
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+VIENEU_REPO_PATH = PROJECT_ROOT / "tts" / "VieNeu-TTS"
+
+if not VIENEU_REPO_PATH.exists():
+    raise ImportError(
+        f"VieNeu-TTS repository not found at: {VIENEU_REPO_PATH}\n"
+        f"Repository VieNeu-TTS không tìm thấy tại: {VIENEU_REPO_PATH}\n"
+        f"Expected location: tts/VieNeu-TTS relative to project root: {PROJECT_ROOT}"
+    )
+
 if str(VIENEU_REPO_PATH) not in sys.path:
     sys.path.insert(0, str(VIENEU_REPO_PATH))
+    print(f"✅ Added VieNeu-TTS repo to path: {VIENEU_REPO_PATH}")
+    print(f"✅ Đã thêm repo VieNeu-TTS vào path: {VIENEU_REPO_PATH}")
 
 # Import EXACTLY like test_female_voice.py does (working example)
 # Import CHÍNH XÁC như test_female_voice.py làm (ví dụ hoạt động)
+# No patches needed - we're using the same environment!
+# Không cần patch - chúng ta đang sử dụng cùng môi trường!
 from vieneu_tts import VieNeuTTS
 
 # Try to import config_local like the working test does
@@ -158,10 +128,15 @@ class VieNeuTTSWrapper:
         text: str,
         ref_audio_path: str,
         ref_text: str,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        max_chars: int = 256,
+        auto_chunk: bool = True
     ) -> np.ndarray:
         """
         Synthesize speech / Tổng hợp giọng nói
+        
+        Supports long text generation by chunking (like infer_long_text.py).
+        Hỗ trợ tạo văn bản dài bằng cách chia nhỏ (như infer_long_text.py).
         
         This follows the exact pattern from VieNeu-TTS repository examples.
         Function này tuân theo đúng pattern từ các ví dụ trong repository VieNeu-TTS.
@@ -171,24 +146,60 @@ class VieNeuTTSWrapper:
             ref_audio_path: Path to reference audio / Đường dẫn audio tham chiếu
             ref_text: Reference text (must match the reference audio) / Văn bản tham chiếu (phải khớp với audio tham chiếu)
             output_path: Optional output path / Đường dẫn đầu ra tùy chọn
+            max_chars: Maximum characters per chunk (default: 256) / Ký tự tối đa mỗi chunk (mặc định: 256)
+            auto_chunk: Automatically chunk long text (default: True) / Tự động chia nhỏ văn bản dài (mặc định: True)
             
         Returns:
             Audio array (numpy array) / Mảng audio (numpy array)
         """
-        # Encode reference audio (exactly like repo examples)
-        # Mã hóa audio tham chiếu (chính xác như các ví dụ trong repo)
+        # Import chunking utility / Import tiện ích chia nhỏ
+        import sys
+        from pathlib import Path
+        chunker_path = Path(__file__).parent.parent / "text_chunker.py"
+        if str(chunker_path.parent) not in sys.path:
+            sys.path.insert(0, str(chunker_path.parent))
+        from text_chunker import split_text_into_chunks, should_chunk_text
+        
+        # Encode reference audio ONCE (reused for all chunks) / Mã hóa audio tham chiếu MỘT LẦN (tái sử dụng cho tất cả chunks)
         ref_codes = self.model.encode_reference(ref_audio_path)
         
-        # Generate speech (exactly like repo examples)
-        # Tạo giọng nói (chính xác như các ví dụ trong repo)
-        wav = self.model.infer(text, ref_codes, ref_text)
-        
-        # Save if output path provided (exactly like repo examples)
-        # Lưu nếu có đường dẫn đầu ra (chính xác như các ví dụ trong repo)
-        if output_path:
-            sf.write(output_path, wav, self.sample_rate)
-        
-        return wav
+        # Check if text needs chunking / Kiểm tra xem văn bản có cần chia nhỏ không
+        if auto_chunk and should_chunk_text(text, max_chars):
+            # Split into chunks / Chia thành chunks
+            chunks = split_text_into_chunks(text, max_chars=max_chars)
+            
+            if not chunks:
+                raise ValueError("Text could not be segmented into valid chunks")
+            
+            print(f"📄 Long text detected: splitting into {len(chunks)} chunks (≤{max_chars} chars each)")
+            print(f"📄 Phát hiện văn bản dài: chia thành {len(chunks)} chunks (≤{max_chars} ký tự mỗi chunk)")
+            
+            # Generate audio for each chunk / Tạo audio cho mỗi chunk
+            generated_segments = []
+            for idx, chunk in enumerate(chunks, start=1):
+                print(f"🎙️ Generating chunk {idx}/{len(chunks)} ({len(chunk)} chars) / Đang tạo chunk {idx}/{len(chunks)} ({len(chunk)} ký tự)")
+                # Reuse same ref_codes for all chunks (key optimization!) / Tái sử dụng cùng ref_codes cho tất cả chunks (tối ưu quan trọng!)
+                wav = self.model.infer(chunk, ref_codes, ref_text)
+                generated_segments.append(wav)
+            
+            # Concatenate all segments / Nối tất cả các đoạn
+            combined_audio = np.concatenate(generated_segments)
+            
+            # Save if output path provided / Lưu nếu có đường dẫn đầu ra
+            if output_path:
+                sf.write(output_path, combined_audio, self.sample_rate)
+            
+            print(f"✅ Generated long text audio ({len(chunks)} chunks combined) / Đã tạo audio văn bản dài ({len(chunks)} chunks đã kết hợp)")
+            return combined_audio
+        else:
+            # Short text - generate directly / Văn bản ngắn - tạo trực tiếp
+            wav = self.model.infer(text, ref_codes, ref_text)
+            
+            # Save if output path provided / Lưu nếu có đường dẫn đầu ra
+            if output_path:
+                sf.write(output_path, wav, self.sample_rate)
+            
+            return wav
     
     def get_sample_rate(self) -> int:
         """Get sample rate / Lấy tần số lấy mẫu"""
