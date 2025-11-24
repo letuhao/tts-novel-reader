@@ -177,11 +177,39 @@ router.get('/:id/chapters', async (req, res, next) => {
     
     // CRITICAL: Sort chapters by chapter number to support non-sequential numbers
     // QUAN TRỌNG: Sắp xếp chapters theo số chapter để hỗ trợ số không liên tục
-    const sortedChapters = [...actualChapters].sort((a, b) => a.chapterNumber - b.chapterNumber);
+    // Handle both camelCase and snake_case for backward compatibility
+    // Xử lý cả camelCase và snake_case để tương thích ngược
+    const sortedChapters = [...actualChapters].sort((a, b) => {
+      const aNum = a.chapterNumber || a.chapter_number || 0;
+      const bNum = b.chapterNumber || b.chapter_number || 0;
+      return aNum - bNum;
+    });
     
     // Detect gaps in chapter numbers for logging
     // Phát hiện khoảng trống trong số chapter để log
-    const chapterNumbers = sortedChapters.map(ch => ch.chapterNumber);
+    const chapterNumbers = sortedChapters.map(ch => ch.chapterNumber || ch.chapter_number || 0);
+    
+    // Debug: Log first few chapters to verify chapter numbers
+    // Debug: Log vài chapters đầu để xác minh số chapter
+    if (sortedChapters.length > 0) {
+      const firstFew = sortedChapters.slice(0, 5).map(ch => ({
+        id: ch.id,
+        chapterNumber: ch.chapterNumber || ch.chapter_number,
+        title: ch.title
+      }));
+      console.log(`[Novels Route] 📋 First 5 chapters:`, firstFew);
+      
+      // Check if all chapters have the same number (parsing issue)
+      // Kiểm tra xem tất cả chapters có cùng số không (vấn đề parsing)
+      const allChapterNumbers = sortedChapters.map(ch => ch.chapterNumber || ch.chapter_number);
+      const uniqueNumbers = [...new Set(allChapterNumbers)];
+      if (uniqueNumbers.length === 1) {
+        console.error(`[Novels Route] ❌ CRITICAL: All ${sortedChapters.length} chapters have the same chapterNumber: ${uniqueNumbers[0]}`);
+        console.error(`[Novels Route] ❌ QUAN TRỌNG: Tất cả ${sortedChapters.length} chapters đều có cùng chapterNumber: ${uniqueNumbers[0]}`);
+        console.error(`[Novels Route] ❌ This indicates a parsing error. The novel file may need to be re-parsed.`);
+        console.error(`[Novels Route] ❌ Điều này cho thấy lỗi parsing. File novel có thể cần được parse lại.`);
+      }
+    }
     const gaps = [];
     for (let i = 0; i < chapterNumbers.length - 1; i++) {
       if (chapterNumbers[i + 1] - chapterNumbers[i] > 1) {
@@ -209,13 +237,21 @@ router.get('/:id/chapters', async (req, res, next) => {
     
     res.json({
       success: true,
-      chapters: sortedChapters.map(ch => ({
-        id: ch.id,
-        chapterNumber: ch.chapterNumber,
-        title: ch.title,
-        totalParagraphs: ch.totalParagraphs,
-        totalLines: ch.totalLines
-      })),
+      chapters: sortedChapters.map(ch => {
+        // Handle both camelCase and snake_case for backward compatibility
+        // Xử lý cả camelCase và snake_case để tương thích ngược
+        const chapterNumber = ch.chapterNumber || ch.chapter_number || 0;
+        const totalParagraphs = ch.totalParagraphs || ch.total_paragraphs || 0;
+        const totalLines = ch.totalLines || ch.total_lines || 0;
+        
+        return {
+          id: ch.id,
+          chapterNumber: chapterNumber,
+          title: ch.title,
+          totalParagraphs: totalParagraphs,
+          totalLines: totalLines
+        };
+      }),
       // Return actual count, not database field
       // Trả về số đếm thực tế, không phải trường database
       totalChapters: actualTotalChapters,

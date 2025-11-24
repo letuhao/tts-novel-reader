@@ -67,10 +67,20 @@ function ReaderHeader({
     
     // Find previous chapter in actual chapters array (supports gaps)
     // Tìm chapter trước trong mảng chapters thực tế (hỗ trợ khoảng trống)
-    const sortedChapters = [...chapters].sort((a, b) => a.chapterNumber - b.chapterNumber)
-    const currentIndex = sortedChapters.findIndex(ch => ch.chapterNumber === currentChapterNumber)
+    // Handle both camelCase and snake_case for backward compatibility
+    // Xử lý cả camelCase và snake_case để tương thích ngược
+    const sortedChapters = [...chapters].sort((a, b) => {
+      const aNum = a.chapterNumber || a.chapter_number || 0
+      const bNum = b.chapterNumber || b.chapter_number || 0
+      return aNum - bNum
+    })
+    const currentIndex = sortedChapters.findIndex(ch => {
+      const chNum = ch.chapterNumber || ch.chapter_number
+      return chNum === currentChapterNumber
+    })
     if (currentIndex > 0) {
-      return sortedChapters[currentIndex - 1].chapterNumber
+      const prevCh = sortedChapters[currentIndex - 1]
+      return prevCh.chapterNumber || prevCh.chapter_number || null
     }
     return null
   }
@@ -84,10 +94,20 @@ function ReaderHeader({
     
     // Find next chapter in actual chapters array (supports gaps)
     // Tìm chapter tiếp theo trong mảng chapters thực tế (hỗ trợ khoảng trống)
-    const sortedChapters = [...chapters].sort((a, b) => a.chapterNumber - b.chapterNumber)
-    const currentIndex = sortedChapters.findIndex(ch => ch.chapterNumber === currentChapterNumber)
+    // Handle both camelCase and snake_case for backward compatibility
+    // Xử lý cả camelCase và snake_case để tương thích ngược
+    const sortedChapters = [...chapters].sort((a, b) => {
+      const aNum = a.chapterNumber || a.chapter_number || 0
+      const bNum = b.chapterNumber || b.chapter_number || 0
+      return aNum - bNum
+    })
+    const currentIndex = sortedChapters.findIndex(ch => {
+      const chNum = ch.chapterNumber || ch.chapter_number
+      return chNum === currentChapterNumber
+    })
     if (currentIndex >= 0 && currentIndex < sortedChapters.length - 1) {
-      return sortedChapters[currentIndex + 1].chapterNumber
+      const nextCh = sortedChapters[currentIndex + 1]
+      return nextCh.chapterNumber || nextCh.chapter_number || null
     }
     return null
   }
@@ -142,11 +162,22 @@ function ReaderHeader({
               // CRITICAL: Use actual chapters array to support non-sequential chapter numbers
               // QUAN TRỌNG: Sử dụng mảng chapters thực tế để hỗ trợ số chapter không liên tục
               chapters.length > 0
-                ? chapters.map((ch) => (
-                    <option key={ch.id} value={ch.chapterNumber}>
-                      {ch.chapterNumber} {ch.title ? `- ${ch.title}` : ''}
-                    </option>
-                  ))
+                ? chapters.map((ch) => {
+                    // Handle both camelCase and snake_case for backward compatibility
+                    // Xử lý cả camelCase và snake_case để tương thích ngược
+                    const chapterNumber = ch.chapterNumber || ch.chapter_number || 0
+                    const title = ch.title || ''
+                    // Clean up title - remove single colon or meaningless titles
+                    // Làm sạch title - loại bỏ dấu hai chấm đơn hoặc title vô nghĩa
+                    const displayTitle = title && title.trim() !== ':' && title.trim().length > 0 
+                      ? ` - ${title.trim()}` 
+                      : ''
+                    return (
+                      <option key={ch.id} value={chapterNumber}>
+                        {chapterNumber}{displayTitle}
+                      </option>
+                    )
+                  })
                 : // Fallback: Generate sequential numbers if chapters array not available
                   // Dự phòng: Generate số liên tục nếu mảng chapters không có sẵn
                   Array.from({ length: actualTotalChapters }, (_, i) => i + 1).map((num) => (

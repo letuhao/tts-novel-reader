@@ -17,10 +17,35 @@ export class ChapterModel {
       ORDER BY chapter_number ASC
     `).all(novelId);
     
-    return chapters.map(chapter => ({
-      ...chapter,
-      lines: chapter.lines ? JSON.parse(chapter.lines) : null
+    // Convert snake_case database columns to camelCase
+    // Chuyển đổi các cột database snake_case sang camelCase
+    const transformed = chapters.map(chapter => ({
+      id: chapter.id,
+      novelId: chapter.novel_id,
+      chapterNumber: chapter.chapter_number,
+      title: chapter.title,
+      content: chapter.content,
+      totalParagraphs: chapter.total_paragraphs,
+      totalLines: chapter.total_lines,
+      lines: chapter.lines ? JSON.parse(chapter.lines) : null,
+      createdAt: chapter.created_at,
+      updatedAt: chapter.updated_at
     }));
+    
+    // Debug: Log chapter numbers to verify transformation
+    // Debug: Log số chapter để xác minh transformation
+    if (transformed.length > 0) {
+      const chapterNumbers = transformed.map(ch => ch.chapterNumber);
+      const uniqueNumbers = [...new Set(chapterNumbers)];
+      console.log(`[ChapterModel] 📚 Loaded ${transformed.length} chapters for novel ${novelId}`);
+      console.log(`[ChapterModel] 📚 Unique chapter numbers: ${uniqueNumbers.length} (${uniqueNumbers.slice(0, 10).join(', ')}${uniqueNumbers.length > 10 ? '...' : ''})`);
+      if (uniqueNumbers.length === 1 && uniqueNumbers[0] === 1) {
+        console.warn(`[ChapterModel] ⚠️ WARNING: All chapters have chapterNumber = 1! This suggests a parsing issue.`);
+        console.warn(`[ChapterModel] ⚠️ CẢNH BÁO: Tất cả chapters đều có chapterNumber = 1! Điều này cho thấy vấn đề parsing.`);
+      }
+    }
+    
+    return transformed;
   }
   
   /**
@@ -33,9 +58,19 @@ export class ChapterModel {
     
     if (!chapter) return null;
     
+    // Convert snake_case database columns to camelCase
+    // Chuyển đổi các cột database snake_case sang camelCase
     return {
-      ...chapter,
-      lines: chapter.lines ? JSON.parse(chapter.lines) : null
+      id: chapter.id,
+      novelId: chapter.novel_id,
+      chapterNumber: chapter.chapter_number,
+      title: chapter.title,
+      content: chapter.content,
+      totalParagraphs: chapter.total_paragraphs,
+      totalLines: chapter.total_lines,
+      lines: chapter.lines ? JSON.parse(chapter.lines) : null,
+      createdAt: chapter.created_at,
+      updatedAt: chapter.updated_at
     };
   }
   
@@ -52,9 +87,19 @@ export class ChapterModel {
     
     if (!chapter) return null;
     
+    // Convert snake_case database columns to camelCase
+    // Chuyển đổi các cột database snake_case sang camelCase
     return {
-      ...chapter,
-      lines: chapter.lines ? JSON.parse(chapter.lines) : null
+      id: chapter.id,
+      novelId: chapter.novel_id,
+      chapterNumber: chapter.chapter_number,
+      title: chapter.title,
+      content: chapter.content,
+      totalParagraphs: chapter.total_paragraphs,
+      totalLines: chapter.total_lines,
+      lines: chapter.lines ? JSON.parse(chapter.lines) : null,
+      createdAt: chapter.created_at,
+      updatedAt: chapter.updated_at
     };
   }
   
