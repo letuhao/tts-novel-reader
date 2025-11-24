@@ -341,31 +341,18 @@ export class RoleDetectionWorker {
     } = options;
 
     try {
-      // Get novel
+      // SIMPLE LOGIC: Log immediately, then process chapters one by one
+      // LOGIC ĐƠN GIẢN: Log ngay, sau đó xử lý từng chapter một
+      console.log(`[RoleDetectionWorker] Background job started for novel ${novelId}`);
+      console.log(`[RoleDetectionWorker] Background job đã bắt đầu cho novel ${novelId}`);
+
+      // Get novel (fast, just one query)
       const novel = await NovelModel.getById(novelId);
       if (!novel) {
         throw new Error(`Novel not found: ${novelId}`);
       }
 
-      // Get all chapters
-      const chapters = await ChapterModel.getByNovel(novelId);
-      if (!chapters || chapters.length === 0) {
-        throw new Error(`Novel ${novelId} has no chapters`);
-      }
-
-      // Sort chapters by number
-      chapters.sort((a, b) => a.chapter_number - b.chapter_number);
-
-      console.log(`[RoleDetectionWorker] Detecting roles for novel: ${novel.title}`);
-      console.log(`[RoleDetectionWorker] Phát hiện vai diễn cho novel: ${novel.title}`);
-      console.log(`[RoleDetectionWorker] Total chapters: ${chapters.length}`);
-
-      // OPTIMIZED: Check chapter status on-the-fly instead of all upfront
-      // TỐI ƯU: Kiểm tra status chapter on-the-fly thay vì tất cả trước
-      // This allows processing to start immediately instead of waiting for 1600+ DB queries
-      // Điều này cho phép xử lý bắt đầu ngay lập tức thay vì chờ 1600+ truy vấn DB
-      console.log(`[RoleDetectionWorker] Starting processing immediately (will check status on-the-fly)`);
-      console.log(`[RoleDetectionWorker] Bắt đầu xử lý ngay lập tức (sẽ kiểm tra status on-the-fly)`);
+      console.log(`[RoleDetectionWorker] Novel: ${novel.title}`);
 
       // Track overall progress
       let overallProgressId = null;
@@ -379,15 +366,29 @@ export class RoleDetectionWorker {
             startedAt: new Date().toISOString()
           });
           overallProgressId = progress.id;
-          console.log(`[RoleDetectionWorker] Overall progress tracking started: ${overallProgressId}`);
         } catch (progressError) {
           console.warn(`[RoleDetectionWorker] Failed to track overall progress: ${progressError.message}`);
         }
       }
 
-      // Process chapters sequentially (one at a time for best accuracy)
-      // OPTIMIZED: Check status on-the-fly instead of upfront
-      // TỐI ƯU: Kiểm tra status on-the-fly thay vì trước
+      // SIMPLE LOGIC: Get chapter numbers only (lightweight query)
+      // LOGIC ĐƠN GIẢN: Chỉ lấy chapter numbers (query nhẹ)
+      const Database = (await import('../database/db.js')).default;
+      const db = Database.getInstance();
+      const chapterRows = db.prepare(
+        'SELECT id, chapter_number FROM chapters WHERE novel_id = ? ORDER BY chapter_number'
+      ).all(novelId);
+
+      if (!chapterRows || chapterRows.length === 0) {
+        throw new Error(`Novel ${novelId} has no chapters`);
+      }
+
+      const totalChapters = chapterRows.length;
+      console.log(`[RoleDetectionWorker] Total chapters: ${totalChapters}`);
+      console.log(`[RoleDetectionWorker] Starting processing...`);
+
+      // SIMPLE LOGIC: Process each chapter one by one
+      // LOGIC ĐƠN GIẢN: Xử lý từng chapter một
       const results = [];
       const errors = [];
       const skippedChapters = [];
@@ -395,32 +396,28 @@ export class RoleDetectionWorker {
       let totalUpdated = 0;
       let processedCount = 0;
 
-      for (let i = 0; i < chapters.length; i++) {
-        const chapter = chapters[i];
-        const chapterNumber = chapter.chapter_number;
+      for (let i = 0; i < chapterRows.length; i++) {
+        const { id: chapterId, chapter_number: chapterNumber } = chapterRows[i];
         
-        // Check status on-the-fly (only for this chapter)
-        // Kiểm tra status on-the-fly (chỉ cho chapter này)
-        const status = await this.checkChapterClassificationStatus(chapter.id);
-        
-        // Skip if already complete (unless overwriteComplete is true)
-        // Bỏ qua nếu đã hoàn thành (trừ khi overwriteComplete là true)
-        if (!overwriteComplete && status.isComplete) {
-          skippedChapters.push({
-            chapter: chapter,
-            ...status
-          });
-          if ((i + 1) % 100 === 0 || i === chapters.length - 1) {
-            console.log(`[RoleDetectionWorker] Progress: ${i + 1}/${chapters.length} chapters checked, ${processedCount} processed, ${skippedChapters.length} skipped`);
+        // SIMPLE: Check if chapter needs processing
+        // ĐƠN GIẢN: Kiểm tra chapter có cần xử lý không
+        if (!overwriteComplete) {
+          const status = await this.checkChapterClassificationStatus(chapterId);
+          if (status.isComplete) {
+            skippedChapters.push({ chapterId, chapterNumber, ...status });
+            if ((i + 1) % 100 === 0 || i === chapterRows.length - 1) {
+              console.log(`[RoleDetectionWorker] Progress: ${i + 1}/${totalChapters} checked, ${processedCount} processed, ${skippedChapters.length} skipped`);
+            }
+            continue;
           }
-          continue;
         }
         
         processedCount++;
-        console.log(`[RoleDetectionWorker] Processing chapter ${chapterNumber} (${processedCount} processing, ${i + 1}/${chapters.length} total)...`);
+        console.log(`[RoleDetectionWorker] Processing chapter ${chapterNumber} (${processedCount}/${totalChapters - skippedChapters.length} to process)...`);
 
         try {
-          // Detect roles for this chapter
+          // SIMPLE: Detect roles for this chapter
+          // ĐƠN GIẢN: Phát hiện vai diễn cho chapter này
           const result = await this.detectChapterRoles(novelId, chapterNumber, {
             forceRegenerateRoles: forceRegenerateRoles,
             updateProgress: false, // We'll update overall progress instead
@@ -437,7 +434,7 @@ export class RoleDetectionWorker {
 
           // Update overall progress
           if (updateProgress && overallProgressId) {
-            const progressPercent = Math.floor(((i + 1) / chapters.length) * 100);
+            const progressPercent = Math.floor(((i + 1) / totalChapters) * 100);
             try {
               await GenerationProgressModel.update(overallProgressId, {
                 progressPercent: progressPercent
@@ -489,23 +486,22 @@ export class RoleDetectionWorker {
       }
 
       // Get skipped chapters summary
-      const skippedSummary = skippedChapters.map(({ chapter, total, withRole }) => ({
-        chapterNumber: chapter.chapter_number,
-        chapterTitle: chapter.title,
+      const skippedSummary = skippedChapters.map(({ chapterId, chapterNumber, total, withRole }) => ({
+        chapterNumber: chapterNumber,
         totalParagraphs: total,
         alreadyClassified: withRole
       }));
 
       console.log(`[RoleDetectionWorker] Novel role detection completed!`);
-      console.log(`[RoleDetectionWorker] Processed: ${chaptersToProcessCount} chapters, ${totalUpdated} paragraphs updated`);
+      console.log(`[RoleDetectionWorker] Processed: ${processedCount} chapters, ${totalUpdated} paragraphs updated`);
       console.log(`[RoleDetectionWorker] Skipped: ${skippedChapters.length} chapters (already complete)`);
 
       return {
         success: true,
         novelId: novelId,
         novelTitle: novel.title,
-        totalChapters: chapters.length,
-        processedChapters: chaptersToProcessCount,
+        totalChapters: totalChapters,
+        processedChapters: processedCount,
         skippedChapters: skippedChapters.length,
         totalParagraphsProcessed: totalProcessed,
         totalParagraphsUpdated: totalUpdated,

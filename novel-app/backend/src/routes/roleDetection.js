@@ -199,7 +199,8 @@ router.post('/detect-novel', async (req, res, next) => {
 
     console.log(`[RoleDetection] API: Detecting roles for novel ${novelId}`);
 
-    // Get worker and novel
+    // CRITICAL: Validate novel exists quickly (just check, don't load full data)
+    // QUAN TRỌNG: Xác thực novel tồn tại nhanh (chỉ kiểm tra, không load full data)
     const { NovelModel } = await import('../models/Novel.js');
     const novel = await NovelModel.getById(novelId);
     
@@ -212,7 +213,7 @@ router.post('/detect-novel', async (req, res, next) => {
 
     const worker = getRoleDetectionWorker();
 
-    // Create overall progress entry
+    // Create overall progress entry (fast DB operation)
     const { GenerationProgressModel } = await import('../models/GenerationProgress.js');
     const progress = await GenerationProgressModel.createOrUpdate({
       novelId: novelId,
@@ -222,25 +223,32 @@ router.post('/detect-novel', async (req, res, next) => {
       startedAt: new Date().toISOString()
     });
 
-    // Run detection in background (don't await)
-    worker.detectNovelRoles(novelId, {
-      overwriteComplete: overwriteComplete,
-      forceRegenerateRoles: forceRegenerateRoles,
-      updateProgress: updateProgress,
-      saveMetadata: saveMetadata
-    }).catch(error => {
-      console.error(`[RoleDetection] Background novel detection error: ${error.message}`);
-      // Update progress to failed
-      GenerationProgressModel.update(progress.id, {
-        status: 'failed',
-        errorMessage: error.message,
-        completedAt: new Date().toISOString()
-      }).catch(updateError => {
-        console.error(`[RoleDetection] Failed to update progress: ${updateError.message}`);
+    // CRITICAL: Start background job IMMEDIATELY without any blocking operations
+    // QUAN TRỌNG: Bắt đầu background job NGAY LẬP TỨC không có blocking operations
+    // Use setImmediate to ensure this runs in next tick, after response is sent
+    // Sử dụng setImmediate để đảm bảo chạy ở tick tiếp theo, sau khi response được gửi
+    setImmediate(() => {
+      console.log(`[RoleDetection] Starting background job for novel ${novelId}`);
+      worker.detectNovelRoles(novelId, {
+        overwriteComplete: overwriteComplete,
+        forceRegenerateRoles: forceRegenerateRoles,
+        updateProgress: updateProgress,
+        saveMetadata: saveMetadata
+      }).catch(error => {
+        console.error(`[RoleDetection] Background novel detection error: ${error.message}`);
+        // Update progress to failed
+        GenerationProgressModel.update(progress.id, {
+          status: 'failed',
+          errorMessage: error.message,
+          completedAt: new Date().toISOString()
+        }).catch(updateError => {
+          console.error(`[RoleDetection] Failed to update progress: ${updateError.message}`);
+        });
       });
     });
 
-    // Return immediately with progressId
+    // Return immediately with progressId (before background job even starts)
+    // Trả về ngay lập tức với progressId (trước khi background job bắt đầu)
     res.json({
       success: true,
       message: 'Novel role detection started in background',
