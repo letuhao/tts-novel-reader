@@ -84,6 +84,16 @@ export class AudioStorageService {
     this.ttsService = new TTSService();
     this.baseStorageDir = path.join(__dirname, '../../../storage/audio');
   }
+  
+  /**
+   * Get default TTS model
+   * Lấy TTS model mặc định
+   * 
+   * @returns {string} Default model name
+   */
+  getDefaultModel() {
+    return this.ttsService.defaultModel;
+  }
 
   /**
    * Sanitize string for use in file/folder names
@@ -229,8 +239,8 @@ export class AudioStorageService {
     const {
       speakerId = '05',
       ttsExpiryHours = 2,  // TTS backend cache: 2 hours (short-term temporary storage)
-      model = 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
-      // VietTTS specific options / Tùy chọn riêng VietTTS
+      model = this.getDefaultModel(),  // Use default model from TTSService / Sử dụng model mặc định từ TTSService
+      // TTS specific options / Tùy chọn riêng TTS
       voice = 'quynh',  // Default voice (fallback) / Giọng mặc định (dự phòng)
       autoVoice = false,  // Auto-detect gender from text / Tự động phát hiện giới tính từ văn bản
       autoChunk = true,  // Auto-chunk long text / Tự động chia nhỏ văn bản dài

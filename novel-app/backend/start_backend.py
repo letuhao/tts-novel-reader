@@ -69,6 +69,13 @@ def start_backend():
     env = os.environ.copy()
     env["NODE_ENV"] = "production"
     
+    # Preserve TTS_DEFAULT_MODEL if set (for vieneu-tts-backend)
+    # Giữ nguyên TTS_DEFAULT_MODEL nếu đã được thiết lập (cho vieneu-tts-backend)
+    if "TTS_DEFAULT_MODEL" in os.environ:
+        env["TTS_DEFAULT_MODEL"] = os.environ["TTS_DEFAULT_MODEL"]
+        print(f"   📝 Using TTS_DEFAULT_MODEL={os.environ['TTS_DEFAULT_MODEL']}")
+        print(f"   📝 Đang sử dụng TTS_DEFAULT_MODEL={os.environ['TTS_DEFAULT_MODEL']}")
+    
     with open(OUTPUT_LOG, "w", encoding="utf-8") as outfile, \
          open(ERROR_LOG, "w", encoding="utf-8") as errfile:
         process = subprocess.Popen(

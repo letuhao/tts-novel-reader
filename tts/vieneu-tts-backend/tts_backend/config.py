@@ -54,6 +54,8 @@ class ModelConfig:
 
 # API configuration / Cấu hình API
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
+# Default port 11111 (same as VietTTS backend - only one TTS backend runs at a time)
+# Cổng mặc định 11111 (giống VietTTS backend - chỉ một TTS backend chạy tại một thời điểm)
 API_PORT = int(os.getenv("API_PORT", "11111"))
 API_RELOAD = os.getenv("API_RELOAD", "true").lower() == "true"
 

@@ -19,6 +19,10 @@ import uvicorn
 # Import TTS backend
 from tts_backend.service import get_service
 from tts_backend.api import router
+from tts_backend.logging_utils import setup_logging, get_logger
+
+setup_logging()
+logger = get_logger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -32,17 +36,9 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Initialize TTS service and preload Dia model at startup / Khởi tạo dịch vụ TTS và tải trước model Dia khi khởi động"""
-    print("=" * 50)
-    print("Starting TTS Backend (using VieNeu-TTS environment)...")
-    print("Đang khởi động TTS Backend (sử dụng môi trường VieNeu-TTS)...")
-    print("=" * 50)
-    
-    # Initialize service and preload default model (Dia)
-    # Khởi tạo dịch vụ và tải trước model mặc định (Dia)
+    logger.info("Starting TTS Backend (VieNeu-TTS environment)")
     service = get_service()
-    print("✅ TTS Backend ready!")
-    print("✅ TTS Backend sẵn sàng!")
-    print("=" * 50)
+    logger.info("TTS Backend ready with default model %s", service.default_model)
 
 # CORS middleware
 app.add_middleware(

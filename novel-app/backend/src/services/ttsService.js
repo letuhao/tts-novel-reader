@@ -4,6 +4,12 @@
  */
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import { 
+  getDefaultBackend, 
+  getBackendConfig, 
+  getMappedVoice,
+  TTS_BACKENDS 
+} from '../config/ttsConfig.js';
 
 /**
  * Safely format objects for logging without dumping huge payloads
@@ -63,18 +69,75 @@ const extractMetadataPayload = (responseBody) => {
 };
 
 export class TTSService {
-  constructor(baseURL = 'http://127.0.0.1:11111') {
-    this.baseURL = baseURL || process.env.TTS_BACKEND_URL || 'http://127.0.0.1:11111';
+  constructor(baseURL = null) {
+    // Get default backend config / Lấy cấu hình backend mặc định
+    const defaultBackend = getDefaultBackend();
+    this.defaultBackend = defaultBackend;
+    
+    // Use provided baseURL or default backend URL / Sử dụng baseURL được cung cấp hoặc URL backend mặc định
+    this.baseURL = baseURL || process.env.TTS_BACKEND_URL || defaultBackend.baseURL;
+    
     this.defaultSpeaker = process.env.TTS_DEFAULT_SPEAKER || '05';
     this.defaultExpiryHours = parseInt(process.env.TTS_DEFAULT_EXPIRY_HOURS || '365');
-    // Changed default to viettts (VietTTS backend)
-    // Đã đổi mặc định sang viettts (VietTTS backend)
-    this.defaultModel = process.env.TTS_DEFAULT_MODEL || 'viettts';
-    // VietTTS defaults / Mặc định VietTTS
-    this.defaultVoice = process.env.TTS_DEFAULT_VOICE || 'quynh'; // Default voice / Giọng mặc định
+    
+    // Default model from environment or default backend / Model mặc định từ môi trường hoặc backend mặc định
+    this.defaultModel = process.env.TTS_DEFAULT_MODEL || defaultBackend.model;
+    
+    // Default voice from environment or default backend / Giọng mặc định từ môi trường hoặc backend mặc định
+    this.defaultVoice = process.env.TTS_DEFAULT_VOICE || defaultBackend.defaultVoice;
+    
     this.defaultAutoVoice = process.env.TTS_AUTO_VOICE === 'true';
     this.defaultAutoChunk = process.env.TTS_AUTO_CHUNK !== 'false'; // Default true
     this.defaultMaxChars = parseInt(process.env.TTS_MAX_CHARS || '256');
+  }
+  
+  /**
+   * Get backend URL for a specific model
+   * Lấy URL backend cho một model cụ thể
+   * 
+   * @param {string} model - Model name
+   * @returns {string} Backend URL
+   */
+  getBackendURL(model) {
+    const backendConfig = getBackendConfig(model);
+    if (backendConfig) {
+      return backendConfig.baseURL;
+    }
+    // Fallback to default / Dự phòng về mặc định
+    return this.baseURL;
+  }
+  
+  /**
+   * Map voice ID to backend-specific voice ID
+   * Ánh xạ voice ID sang voice ID cụ thể của backend
+   * 
+   * @param {string} voiceId - Original voice ID or voice name (e.g., 'id_0001' or 'quynh')
+   * @param {string} model - Model name
+   * @returns {string} Mapped voice ID for the backend
+   */
+  mapVoiceId(voiceId, model) {
+    if (!voiceId) {
+      console.log(`[TTS Service] [mapVoiceId] [DEBUG] Voice ID is empty, returning as-is`);
+      return voiceId;
+    }
+    
+    console.log(`[TTS Service] [mapVoiceId] [DEBUG] Mapping voice: "${voiceId}" for model: "${model}"`);
+    
+    // Try to map using voice mapping config / Thử ánh xạ bằng cấu hình ánh xạ giọng
+    const mappedVoice = getMappedVoice(voiceId, model);
+    if (mappedVoice) {
+      console.log(`[TTS Service] [mapVoiceId] [DEBUG] ✅ Mapping found: "${voiceId}" → "${mappedVoice}"`);
+      return mappedVoice;
+    }
+    
+    // If no mapping found:
+    // - For VietTTS: return as-is (might be valid VietTTS voice name)
+    // - For VieNeu-TTS: return as-is (might be "male", "female", or valid voice ID)
+    // Nếu không tìm thấy ánh xạ:
+    // - Cho VietTTS: trả về như cũ (có thể là tên giọng VietTTS hợp lệ)
+    // - Cho VieNeu-TTS: trả về như cũ (có thể là "male", "female", hoặc voice ID hợp lệ)
+    console.log(`[TTS Service] [mapVoiceId] [DEBUG] ⚠️  No mapping found, returning original: "${voiceId}"`);
+    return voiceId;
   }
   
   /**
@@ -117,14 +180,34 @@ export class TTSService {
     }
     
     try {
+      // CRITICAL: Get backend URL FIRST to determine which backend we're actually using
+      // QUAN TRỌNG: Lấy URL backend TRƯỚC để xác định backend nào đang được sử dụng
+      const backendURL = this.getBackendURL(model);
+      const backendConfig = getBackendConfig(model);
+      const actualBackendName = backendConfig ? backendConfig.name : model;
+      
+      // CRITICAL: Map voice ID to backend-specific voice ID BEFORE building request
+      // QUAN TRỌNG: Ánh xạ voice ID sang voice ID cụ thể của backend TRƯỚC KHI xây dựng request
+      // Use actual backend name for mapping (not just model name)
+      // Sử dụng tên backend thực tế cho mapping (không chỉ tên model)
+      const mappedVoice = this.mapVoiceId(voice, actualBackendName);
+      
+      // Debug logging / Log debug
+      console.log(`[TTS Service] [generateAudio] ========================================`);
       console.log(`[TTS Service] [generateAudio] Sending request to TTS backend...`);
       console.log(`[TTS Service] [generateAudio] Đang gửi yêu cầu tới TTS backend...`);
-      console.log(`[TTS Service] [generateAudio] URL: ${this.baseURL}/api/tts/synthesize`);
+      console.log(`[TTS Service] [generateAudio] Model: ${model}`);
+      console.log(`[TTS Service] [generateAudio] Actual Backend: ${actualBackendName}`);
+      console.log(`[TTS Service] [generateAudio] Backend URL: ${backendURL}/api/tts/synthesize`);
       console.log(`[TTS Service] [generateAudio] Text length: ${formattedText.length} chars`);
+      console.log(`[TTS Service] [generateAudio] Original voice: "${voice}"`);
+      console.log(`[TTS Service] [generateAudio] Mapped voice: "${mappedVoice}" (for ${actualBackendName})`);
+      console.log(`[TTS Service] [generateAudio] Voice mapping: ${voice} → ${mappedVoice}`);
+      
       const modelInfo = (model === 'viettts' || model === 'viet-tts') 
-        ? `, Voice: ${voice}, Speed: ${speedFactor || 1.0}`
+        ? `, Voice: ${mappedVoice}, Speed: ${speedFactor || 1.0}`
         : model === 'vieneu-tts' 
-          ? `, Voice: ${voice}` 
+          ? `, Voice: ${mappedVoice}, AutoChunk: ${autoChunk}, MaxChars: ${maxChars}` 
           : `, Speaker: ${speakerId}`;
       console.log(`[TTS Service] [generateAudio] Model: ${model}${modelInfo}`);
       
@@ -136,7 +219,7 @@ export class TTSService {
         // VietTTS sử dụng định dạng API đơn giản hơn: chỉ text, voice, speed
         requestBody = {
           text: formattedText,
-          voice: voice || 'quynh',  // Default to 'quynh' if not specified
+          voice: mappedVoice || 'quynh',  // Use mapped voice / Sử dụng giọng đã ánh xạ
           speed: speedFactor || 1.0  // Speed factor (0.8-1.2, 1.0 = normal)
         };
       } else {
@@ -152,7 +235,7 @@ export class TTSService {
         
         if (model === 'vieneu-tts') {
           // VieNeu-TTS parameters / Tham số VieNeu-TTS
-          requestBody.voice = voice;
+          requestBody.voice = mappedVoice;  // Use mapped voice / Sử dụng giọng đã ánh xạ
           requestBody.auto_voice = autoVoice;
           requestBody.auto_chunk = autoChunk;
           requestBody.max_chars = maxChars;
@@ -162,6 +245,23 @@ export class TTSService {
           }
           if (refText) {
             requestBody.ref_text = refText;
+          }
+          
+          // Debug: Log request body for vieneu-tts / Debug: Log request body cho vieneu-tts
+          console.log(`[TTS Service] [generateAudio] [DEBUG] VieNeu-TTS Request Body:`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - text: "${requestBody.text.substring(0, 50)}..." (${requestBody.text.length} chars)`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - model: ${requestBody.model}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - voice: "${requestBody.voice}"`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - auto_voice: ${requestBody.auto_voice}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - auto_chunk: ${requestBody.auto_chunk}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - max_chars: ${requestBody.max_chars}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - store: ${requestBody.store}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - return_audio: ${requestBody.return_audio}`);
+          if (requestBody.ref_audio_path) {
+            console.log(`[TTS Service] [generateAudio] [DEBUG]   - ref_audio_path: ${requestBody.ref_audio_path}`);
+          }
+          if (requestBody.ref_text) {
+            console.log(`[TTS Service] [generateAudio] [DEBUG]   - ref_text: "${requestBody.ref_text.substring(0, 30)}..."`);
           }
         } else if (model === 'dia') {
           // Dia parameters / Tham số Dia
@@ -174,8 +274,13 @@ export class TTSService {
         }
       }
       
+      // Debug: Log full request before sending / Debug: Log toàn bộ request trước khi gửi
+      console.log(`[TTS Service] [generateAudio] [DEBUG] Full Request Body (JSON):`);
+      console.log(JSON.stringify(requestBody, null, 2));
+      console.log(`[TTS Service] [generateAudio] [DEBUG] Sending POST to: ${backendURL}/api/tts/synthesize`);
+      
       const response = await axios.post(
-        `${this.baseURL}/api/tts/synthesize`,
+        `${backendURL}/api/tts/synthesize`,
         requestBody,
         {
           timeout: 120000, // 2 minutes timeout
@@ -189,6 +294,15 @@ export class TTSService {
       console.log(`[TTS Service] [generateAudio] ✅ Đã nhận phản hồi từ TTS backend`);
       console.log(`[TTS Service] [generateAudio] Status: ${response.status}`);
       console.log(`[TTS Service] [generateAudio] Headers:`, Object.keys(response.headers));
+      
+      // Debug: Log response data (without audio if present) / Debug: Log dữ liệu phản hồi (không có audio nếu có)
+      if (response.data) {
+        const responseDataForLog = { ...response.data };
+        if (responseDataForLog.audio) {
+          responseDataForLog.audio = `[Base64 audio data, length: ${responseDataForLog.audio.length} chars]`;
+        }
+        console.log(`[TTS Service] [generateAudio] [DEBUG] Response data:`, JSON.stringify(responseDataForLog, null, 2));
+      }
       
       // Check if paragraph was skipped (meaningless content)
       // Kiểm tra xem paragraph có bị bỏ qua không (nội dung vô nghĩa)

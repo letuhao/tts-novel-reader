@@ -4,8 +4,17 @@
  */
 import express from 'express';
 import { getWorker } from '../services/worker.js';
+import { getAudioStorage } from '../services/audioStorage.js';
 
 const router = express.Router();
+
+/**
+ * Get default TTS model
+ * Lấy TTS model mặc định
+ */
+function getDefaultModel() {
+  return getAudioStorage().getDefaultModel();
+}
 
 /**
  * Generate audio for a single chapter
@@ -75,7 +84,7 @@ router.post('/generate/chapter', async (req, res, next) => {
       chapterNumber: parseInt(chapterNumber),
       status: 'pending',
       speakerId: speakerId,
-      model: 'viettts',
+      model: getDefaultModel(),
       progressPercent: 0,
       startedAt: new Date().toISOString()
     });
@@ -201,7 +210,7 @@ router.post('/generate/batch', async (req, res, next) => {
       const progress = await GenerationProgressModel.createOrUpdate({
         novelId: novelId,
         status: 'pending',
-        model: 'viettts-batch',
+        model: `${getDefaultModel()}-batch`,
         progressPercent: 0,
         startedAt: new Date().toISOString()
       });
@@ -308,7 +317,7 @@ router.post('/generate/all', async (req, res, next) => {
     const progress = await GenerationProgressModel.createOrUpdate({
       novelId: novelId,
       status: 'pending',
-      model: 'viettts-all-chapters',
+      model: `${getDefaultModel()}-all-chapters`,
       progressPercent: 0,
       startedAt: new Date().toISOString()
     });

@@ -13,8 +13,10 @@ import uuid
 from .service import get_service
 from .storage import get_storage
 from .voice_selector import select_voice, get_available_voices
+from .logging_utils import get_logger, PerformanceTracker
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 # Request models / Model yêu cầu
 class TTSSynthesizeRequest(BaseModel):
@@ -110,165 +112,213 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
     Returns:
         Response with file info and optional audio / Phản hồi với thông tin file và audio tùy chọn
     """
-    try:
-        service = get_service()
-        storage = get_storage()
-        
-        # Generate request ID for tracking / Tạo request ID để theo dõi
+    # Validate text input / Xác thực input văn bản
+    text = request.text.strip() if request.text else ""
+    
+    # Check if text exists
+    # Kiểm tra text có tồn tại không
+    if not text or len(text) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Text is empty. Cannot generate audio from empty text."
+        )
+    
+    # Check for meaningful content (ignore meaningless paragraphs like separator lines)
+    # Kiểm tra nội dung có nghĩa (bỏ qua các đoạn văn vô nghĩa như dòng phân cách)
+    meaningful_text = ''.join(c for c in text if c.isalnum() or c.isspace()).strip()
+    
+    # Detect meaningless paragraphs (only punctuation, separators, etc.)
+    # Phát hiện các đoạn văn vô nghĩa (chỉ dấu câu, dấu phân cách, v.v.)
+    if len(meaningful_text) < 5:
+        # Check if it's a separator line (all dashes, equals, underscores, etc.)
+        # Kiểm tra nếu là dòng phân cách (toàn dấu gạch ngang, dấu bằng, gạch dưới, v.v.)
+        stripped_text = text.strip()
+        if stripped_text:
+            # Remove whitespace to check core characters
+            # Loại bỏ khoảng trắng để kiểm tra ký tự cốt lõi
+            core_text = ''.join(c for c in stripped_text if not c.isspace())
+            if core_text:
+                # Check if text contains only separator/decorator characters
+                # Kiểm tra nếu text chỉ chứa ký tự phân cách/trang trí
+                separator_chars = set('-=_~*#@$%^&+|\\/<>{}[]()')
+                punctuation_chars = set('.,:;!?')
+                if all(c in separator_chars or c in punctuation_chars for c in core_text):
+                    # Return early with a skipped response (silent skip)
+                    # Trả về sớm với phản hồi đã bỏ qua (bỏ qua im lặng)
+                    from fastapi.responses import JSONResponse
+                    request_id = str(uuid.uuid4())
+                    return JSONResponse(
+                        content={
+                            "success": True,
+                            "skipped": True,
+                            "request_id": request_id,
+                            "model": request.model,
+                            "reason": "Meaningless paragraph (separator/decorator line) - skipped silently",
+                            "sample_rate": 24000,
+                            "duration_seconds": 0.0,
+                            "file_metadata": None
+                        },
+                        headers={"X-Request-ID": request_id, "X-Skipped": "true"}
+                    )
+    
+    # Original validation for very short text (but allow if it has meaningful content)
+    # Xác thực gốc cho text quá ngắn (nhưng cho phép nếu có nội dung có nghĩa)
+    if len(text) < 10 and len(meaningful_text) < 5:
+        # Still skip silently if no meaningful content
+        # Vẫn bỏ qua im lặng nếu không có nội dung có nghĩa
+        from fastapi.responses import JSONResponse
         request_id = str(uuid.uuid4())
-        
-        # Extract speaker ID from text if Dia model / Trích xuất speaker ID từ text nếu model Dia
-        speaker_id = "default"
-        if request.model == "dia" and request.text.startswith("["):
-            # Extract speaker ID from [SpeakerID] format / Trích xuất speaker ID từ định dạng [SpeakerID]
-            end_idx = request.text.find("]")
-            if end_idx > 0:
-                speaker_id = request.text[1:end_idx]
-        
-        # Prepare parameters / Chuẩn bị tham số
-        params = {
-            "text": request.text,
-            "model": request.model
-        }
-        
-        if request.model == "vieneu-tts":
-            # Handle voice selection / Xử lý lựa chọn giọng
-            # Priority: voice/auto_voice > custom ref_audio_path/ref_text > default
-            # Ưu tiên: voice/auto_voice > ref_audio_path/ref_text tùy chỉnh > mặc định
-            if request.voice or request.auto_voice:
-                # Use voice selector (voice/auto_voice takes priority) / Sử dụng bộ lựa chọn giọng (voice/auto_voice có ưu tiên)
-                try:
-                    ref_audio_path, ref_text_path = select_voice(
-                        voice=request.voice,
-                        auto_voice=request.auto_voice or False,
-                        text=request.text
-                    )
-                    # Read reference text / Đọc văn bản tham chiếu
-                    with open(ref_text_path, "r", encoding="utf-8") as f:
-                        ref_text = f.read()
-                    
-                    params["ref_audio_path"] = str(ref_audio_path)
-                    params["ref_text"] = ref_text
-                    print(f"🎤 Using voice selector: {ref_audio_path.name} / Sử dụng bộ lựa chọn giọng: {ref_audio_path.name}")
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Failed to select voice: {str(e)}"
-                    )
-            elif request.ref_audio_path and request.ref_text:
-                # Use custom reference audio/text (only if voice/auto_voice not specified) / Sử dụng audio/text tham chiếu tùy chỉnh (chỉ khi voice/auto_voice không được chỉ định)
-                params["ref_audio_path"] = request.ref_audio_path
-                params["ref_text"] = request.ref_text
-                print(f"🎤 Using custom reference: {request.ref_audio_path} / Sử dụng tham chiếu tùy chỉnh: {request.ref_audio_path}")
-            else:
-                # Use default voice / Sử dụng giọng mặc định
-                try:
-                    ref_audio_path, ref_text_path = select_voice(
-                        voice=None,  # Will use default
-                        auto_voice=False,
-                        text=request.text
-                    )
-                    # Read reference text / Đọc văn bản tham chiếu
-                    with open(ref_text_path, "r", encoding="utf-8") as f:
-                        ref_text = f.read()
-                    
-                    params["ref_audio_path"] = str(ref_audio_path)
-                    params["ref_text"] = ref_text
-                    print(f"🎤 Using default voice: {ref_audio_path.name} / Sử dụng giọng mặc định: {ref_audio_path.name}")
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Failed to select default voice: {str(e)}"
-                    )
+        return JSONResponse(
+            content={
+                "success": True,
+                "skipped": True,
+                "request_id": request_id,
+                "model": request.model,
+                "reason": "Text too short or contains only punctuation - skipped silently",
+                "sample_rate": 24000,
+                "duration_seconds": 0.0,
+                "file_metadata": None
+            },
+            headers={"X-Request-ID": request_id, "X-Skipped": "true"}
+        )
+    
+    service = get_service()
+    storage = get_storage()
+    request_id = str(uuid.uuid4())
+    perf = PerformanceTracker(logger, request_id)
+    perf.log("Received synthesize request", model=request.model, text_chars=len(text))
+
+    try:
+        with perf.stage("request_total", model=request.model):
+            speaker_id = "default"
+            if request.model == "dia" and text.startswith("["):
+                end_idx = text.find("]")
+                if end_idx > 0:
+                    speaker_id = text[1:end_idx]
             
-            # Add long text parameters / Thêm tham số văn bản dài
-            params["max_chars"] = request.max_chars or 256
-            params["auto_chunk"] = request.auto_chunk if request.auto_chunk is not None else True
-        elif request.model == "dia":
-            params.update({
-                "temperature": request.temperature,
-                "top_p": request.top_p,
-                "cfg_scale": request.cfg_scale,
-                "max_tokens": request.max_tokens,
-                "speed_factor": request.speed_factor or 1.0,  # Default normal speed (matches preset)
-                "trim_silence": request.trim_silence if request.trim_silence is not None else True,  # Default to True for API, but worker will pass False
-                "normalize": request.normalize if request.normalize is not None else False  # Default to False
-            })
-        
-        # Generate audio / Tạo audio
-        audio = service.synthesize(**params)
-        
-        # Get sample rate / Lấy tần số lấy mẫu
-        model_info = service.get_model_info(request.model)
-        sample_rate = model_info["sample_rate"]
-        
-        # Convert to bytes / Chuyển đổi sang bytes
-        audio_buffer = io.BytesIO()
-        sf.write(audio_buffer, audio, sample_rate, format="WAV")
-        audio_data = audio_buffer.getvalue()
-        
-        # Store audio if requested / Lưu audio nếu được yêu cầu
-        file_metadata = None
-        if request.store:
-            file_metadata = storage.save_audio(
-                audio_data=audio_data,
-                text=request.text,
-                speaker_id=speaker_id,
-                model=request.model,
-                expiry_hours=request.expiry_hours,
-                metadata={
-                    "request_id": request_id,
+            params = {
+                "text": text,  # Use validated text / Sử dụng text đã xác thực
+                "model": request.model,
+                "request_id": request_id,
+            }
+            
+            if request.model == "vieneu-tts":
+                params["max_chars"] = request.max_chars or 256
+                params["auto_chunk"] = request.auto_chunk if request.auto_chunk is not None else True
+                voice_strategy = "default"
+                
+                if request.voice or request.auto_voice:
+                    voice_strategy = "selector"
+                    with perf.stage("voice_selection", strategy="selector", voice=request.voice, auto=request.auto_voice):
+                        ref_audio_path, ref_text_path = select_voice(
+                            voice=request.voice,
+                            auto_voice=request.auto_voice or False,
+                            text=text
+                        )
+                        with open(ref_text_path, "r", encoding="utf-8") as f:
+                            ref_text = f.read()
+                        params["ref_audio_path"] = str(ref_audio_path)
+                        params["ref_text"] = ref_text
+                elif request.ref_audio_path and request.ref_text:
+                    voice_strategy = "custom_reference"
+                    params["ref_audio_path"] = request.ref_audio_path
+                    params["ref_text"] = request.ref_text
+                else:
+                    with perf.stage("voice_selection", strategy="default"):
+                        ref_audio_path, ref_text_path = select_voice(
+                            voice=None,
+                            auto_voice=False,
+                            text=text
+                        )
+                        with open(ref_text_path, "r", encoding="utf-8") as f:
+                            ref_text = f.read()
+                        params["ref_audio_path"] = str(ref_audio_path)
+                        params["ref_text"] = ref_text
+                perf.log("Voice prepared", strategy=voice_strategy)
+            elif request.model == "dia":
+                params.update({
                     "temperature": request.temperature,
                     "top_p": request.top_p,
                     "cfg_scale": request.cfg_scale,
-                    "sample_rate": sample_rate
-                }
-            )
-        
-        # Prepare response / Chuẩn bị phản hồi
-        response_data = {
-            "success": True,
-            "request_id": request_id,
-            "model": request.model,
-            "sample_rate": sample_rate,
-            "duration_seconds": len(audio) / sample_rate,
-            "file_metadata": file_metadata
-        }
-        
-        # Return audio in response if requested / Trả về audio trong phản hồi nếu được yêu cầu
-        if request.return_audio:
-            from fastapi.responses import JSONResponse
-            from fastapi.responses import StreamingResponse
+                    "max_tokens": request.max_tokens,
+                    "speed_factor": request.speed_factor or 1.0,
+                    "trim_silence": request.trim_silence if request.trim_silence is not None else True,
+                    "normalize": request.normalize if request.normalize is not None else False
+                })
             
-            # Return as JSON with base64 audio or as streaming response
-            # For now, stream the audio directly
-            audio_buffer = io.BytesIO(audio_data)
-            audio_buffer.seek(0)
+            with perf.stage("synthesize_call", model=request.model):
+                audio = service.synthesize(**params)
             
-            return StreamingResponse(
-                audio_buffer,
-                media_type="audio/wav",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{file_metadata["file_name"] if file_metadata else "output.wav"}"',
-                    "X-Request-ID": request_id,
-                    "X-File-ID": file_metadata["file_id"] if file_metadata else "",
-                    "X-Expires-At": file_metadata["expires_at"] if file_metadata else "",
-                }
+            model_info = service.get_model_info(request.model)
+            sample_rate = model_info["sample_rate"]
+            
+            with perf.stage("serialize_audio"):
+                audio_buffer = io.BytesIO()
+                sf.write(audio_buffer, audio, sample_rate, format="WAV")
+                audio_data = audio_buffer.getvalue()
+            
+            file_metadata = None
+            if request.store:
+                with perf.stage("storage_save"):
+                    file_metadata = storage.save_audio(
+                        audio_data=audio_data,
+                        text=request.text,
+                        speaker_id=speaker_id,
+                        model=request.model,
+                        expiry_hours=request.expiry_hours,
+                        metadata={
+                            "request_id": request_id,
+                            "temperature": request.temperature,
+                            "top_p": request.top_p,
+                            "cfg_scale": request.cfg_scale,
+                            "sample_rate": sample_rate
+                        }
+                    )
+            
+            duration_seconds = len(audio) / sample_rate
+            perf.log(
+                "Audio ready",
+                duration_seconds=f"{duration_seconds:.2f}",
+                sample_rate=sample_rate
             )
-        else:
-            # Return metadata only / Chỉ trả về metadata
-            from fastapi.responses import JSONResponse
-            # Add headers for consistency with StreamingResponse / Thêm headers để nhất quán với StreamingResponse
-            headers = {}
-            if file_metadata:
-                headers["X-Request-ID"] = request_id
-                headers["X-File-ID"] = file_metadata.get("file_id", "")
-                headers["X-Expires-At"] = file_metadata.get("expires_at", "")
-            return JSONResponse(content=response_data, headers=headers)
+            
+            response_data = {
+                "success": True,
+                "request_id": request_id,
+                "model": request.model,
+                "sample_rate": sample_rate,
+                "duration_seconds": duration_seconds,
+                "file_metadata": file_metadata
+            }
+            
+            if request.return_audio:
+                from fastapi.responses import StreamingResponse
+                audio_buffer = io.BytesIO(audio_data)
+                audio_buffer.seek(0)
+                
+                return StreamingResponse(
+                    audio_buffer,
+                    media_type="audio/wav",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{file_metadata["file_name"] if file_metadata else "output.wav"}"',
+                        "X-Request-ID": request_id,
+                        "X-File-ID": file_metadata["file_id"] if file_metadata else "",
+                        "X-Expires-At": file_metadata["expires_at"] if file_metadata else "",
+                    }
+                )
+            else:
+                from fastapi.responses import JSONResponse
+                headers = {}
+                if file_metadata:
+                    headers["X-Request-ID"] = request_id
+                    headers["X-File-ID"] = file_metadata.get("file_id", "")
+                    headers["X-Expires-At"] = file_metadata.get("expires_at", "")
+                return JSONResponse(content=response_data, headers=headers)
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("Unhandled error during synthesis request %s", request_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 # Get audio file by ID / Lấy file audio theo ID

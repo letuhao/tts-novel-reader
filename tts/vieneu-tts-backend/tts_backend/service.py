@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .models.dia_tts import DiaTTSWrapper
 
 from .config import ModelConfig
+from .logging_utils import get_logger, PerformanceTracker
 
 # Model types / Loại model
 ModelType = Literal["vieneu-tts", "dia"]
@@ -25,57 +26,42 @@ class TTSService:
             default_model: Default model to use / Model mặc định sử dụng
             preload_default: Whether to preload default model at startup / Có tải trước model mặc định khi khởi động không
         """
+        self.logger = get_logger("tts_backend.service")
         self.default_model = default_model
         self.vieneu_tts = None
         self.dia_tts = None
         self.dia_available = None  # Cache availability check
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Initializing TTS Service on device: {self.device}")
-        print(f"Khởi tạo Dịch vụ TTS trên thiết bị: {self.device}")
-        print(f"Default model: {default_model}")
-        print(f"Model mặc định: {default_model}")
+        self.logger.info("Initializing TTS Service on %s (default model=%s)", self.device, default_model)
         
         # Preload default model at startup to avoid loading delay on first request
         # Tải trước model mặc định khi khởi động để tránh độ trễ tải ở request đầu tiên
         if preload_default:
-            print(f"Preloading default model: {default_model}...")
-            print(f"Đang tải trước model mặc định: {default_model}...")
+            self.logger.info("Preloading default model: %s", default_model)
             if default_model == "dia":
                 try:
                     self.get_dia_tts()  # Preload Dia model
                 except (ImportError, ModuleNotFoundError) as e:
-                    print(f"⚠️  Dia TTS not available: {e}")
-                    print(f"⚠️  Dia TTS không khả dụng: {e}")
-                    print("Falling back to VieNeu-TTS as default...")
-                    print("Chuyển sang VieNeu-TTS làm mặc định...")
+                    self.logger.warning("Dia TTS not available: %s - falling back to VieNeu-TTS", e)
                     self.default_model = "vieneu-tts"
             elif default_model == "vieneu-tts":
                 # Preload VieNeu-TTS model (backbone and codec will be loaded to GPU)
                 # Tải trước model VieNeu-TTS (backbone và codec sẽ được tải lên GPU)
                 try:
                     vieneu_tts = self.get_vieneu_tts()  # Preload VieNeu-TTS model
-                    print("✅ VieNeu-TTS model preloaded to GPU")
-                    print("✅ Model VieNeu-TTS đã được tải trước lên GPU")
+                    self.logger.info("VieNeu-TTS model preloaded to %s", self.device)
                     
-                    # Warmup model to trigger torch.compile and prepare for fast inference
-                    # Làm nóng model để kích hoạt torch.compile và chuẩn bị cho inference nhanh
                     if self.device == "cuda":
-                        print("🔥 Warming up model (this may take 30-60 seconds)...")
-                        print("🔥 Đang làm nóng model (có thể mất 30-60 giây)...")
+                        self.logger.info("Warming up VieNeu-TTS model...")
                         vieneu_tts.warmup()
                 except Exception as e:
-                    print(f"⚠️  Failed to preload VieNeu-TTS: {e}")
-                    print(f"⚠️  Không thể tải trước VieNeu-TTS: {e}")
-                    import traceback
-                    traceback.print_exc()
-            print("✅ Default model ready")
-            print("✅ Model mặc định đã sẵn sàng")
+                    self.logger.exception("Failed to preload VieNeu-TTS: %s", e)
+            self.logger.info("Default model ready")
     
     def get_vieneu_tts(self):
         """Get or load VieNeu-TTS model / Lấy hoặc tải model VieNeu-TTS"""
         if self.vieneu_tts is None:
-            print("Loading VieNeu-TTS model...")
-            print("Đang tải model VieNeu-TTS...")
+            self.logger.info("Loading VieNeu-TTS model")
             from .models.vieneu_tts import VieNeuTTSWrapper
             self.vieneu_tts = VieNeuTTSWrapper(device=self.device)
         return self.vieneu_tts
@@ -98,8 +84,7 @@ class TTSService:
                 "descript-audio-codec>=1.0.0 transformers>=4.35.0 bitsandbytes>=0.39.0"
             )
         if self.dia_tts is None:
-            print("Loading Dia TTS model...")
-            print("Đang tải model Dia TTS...")
+            self.logger.info("Loading Dia TTS model")
             from .models.dia_tts import DiaTTSWrapper
             self.dia_tts = DiaTTSWrapper(device=self.device)
         return self.dia_tts
@@ -110,6 +95,7 @@ class TTSService:
         model: Optional[ModelType] = None,
         ref_audio_path: Optional[str] = None,
         ref_text: Optional[str] = None,
+        request_id: Optional[str] = None,
         **kwargs
     ):
         """
@@ -126,18 +112,25 @@ class TTSService:
             Audio array / Mảng audio
         """
         model = model or self.default_model
+        request_id = kwargs.pop("request_id", request_id)
+        perf = PerformanceTracker(self.logger, request_id)
+        perf.log("Starting synthesis", model=model, text_chars=len(text))
         
         if model == "vieneu-tts":
             if not ref_audio_path or not ref_text:
                 raise ValueError("VieNeu-TTS requires ref_audio_path and ref_text")
             vieneu = self.get_vieneu_tts()
-            # Pass through long text parameters / Chuyển tiếp tham số văn bản dài
+            max_chars = kwargs.get("max_chars", 256)
+            auto_chunk = kwargs.get("auto_chunk", True)
+            # Direct call - performance tracking is handled inside vieneu.synthesize()
+            # Gọi trực tiếp - theo dõi hiệu suất được xử lý bên trong vieneu.synthesize()
             return vieneu.synthesize(
                 text, 
                 ref_audio_path, 
                 ref_text, 
-                max_chars=kwargs.get("max_chars", 256),
-                auto_chunk=kwargs.get("auto_chunk", True),
+                max_chars=max_chars,
+                auto_chunk=auto_chunk,
+                request_id=request_id,
                 **{k: v for k, v in kwargs.items() if k not in ["max_chars", "auto_chunk"]}
             )
         
@@ -148,7 +141,8 @@ class TTSService:
                     "Use 'vieneu-tts' model instead, or install Dia dependencies."
                 )
             dia = self.get_dia_tts()
-            return dia.synthesize(text, **kwargs)
+            with perf.stage("dia_synthesize"):
+                return dia.synthesize(text, **kwargs)
         
         else:
             raise ValueError(f"Unknown model: {model}")

@@ -385,7 +385,7 @@ export class AudioWorker {
               // Generation parameters
               generationParams: {
                 speakerId: speakerId,
-                model: options.model || 'viettts',
+                model: options.model || this.audioStorage.getDefaultModel(),
                 speedFactor: options.speedFactor || 1.0
               },
               
@@ -420,7 +420,7 @@ export class AudioWorker {
               paragraphNumber: paragraph.paragraphNumber,
               status: 'skipped',
               speakerId: speakerId,
-              model: 'viettts',
+              model: this.audioStorage.getDefaultModel(),
               errorMessage: 'Meaningless paragraph (separator/decorator line)'
             });
           } catch (progressError) {
@@ -498,7 +498,7 @@ export class AudioWorker {
               paragraphNumber: paragraph.paragraphNumber,
               status: 'in_progress',
               speakerId: speakerId,
-              model: 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
+              model: this.audioStorage.getDefaultModel(),  // Use default model from config / Sử dụng model mặc định từ config
               progressPercent: 0,
               startedAt: new Date().toISOString()
             });
@@ -554,8 +554,8 @@ export class AudioWorker {
             {
               speakerId: speakerId,
               ttsExpiryHours: 2,  // TTS backend cache: 2 hours (short-term temporary storage)
-              model: 'viettts',  // Changed default to VietTTS / Đã đổi mặc định sang VietTTS
-              // VietTTS parameters / Tham số VietTTS
+              model: this.audioStorage.getDefaultModel(),  // Use default model from config / Sử dụng model mặc định từ config
+              // TTS parameters / Tham số TTS
               voice: selectedVoice,  // Use selected voice based on role / Sử dụng giọng đã chọn dựa trên vai diễn
               speedFactor: this.speedFactor,  // Speed factor (1.0 = normal) / Hệ số tốc độ (1.0 = bình thường)
               // Legacy VieNeu-TTS parameters (not used by VietTTS but kept for compatibility)
@@ -711,7 +711,7 @@ export class AudioWorker {
               sampleRate: null,
               generationParams: {
                 speakerId: speakerId,
-                model: 'viettts',
+                model: this.audioStorage.getDefaultModel(),
                 speedFactor: this.speedFactor
               },
               expiresAt: null,
@@ -756,7 +756,7 @@ export class AudioWorker {
                 paragraphNumber: paragraph.paragraphNumber,
                 status: 'failed',
                 speakerId: speakerId,
-                model: 'viettts',
+                model: this.audioStorage.getDefaultModel(),
                 errorMessage: error.message
               });
             } catch (progressError) {

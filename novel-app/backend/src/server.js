@@ -19,11 +19,35 @@ import generationRoutes from './routes/generation.js';
 import roleDetectionRoutes from './routes/roleDetection.js';
 import roleDetectionWorkerRoutes from './routes/roleDetectionWorker.js';
 
+// Import TTS config (will be used after dotenv loads)
+// Import cấu hình TTS (sẽ được sử dụng sau khi dotenv tải)
+import { getBackendConfig, TTS_BACKENDS } from './config/ttsConfig.js';
+
 // Load environment variables
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Validate TTS model at startup
+// Xác thực TTS model khi khởi động
+const defaultModel = process.env.TTS_DEFAULT_MODEL || 'viettts';
+const backendConfig = getBackendConfig(defaultModel);
+
+if (!backendConfig) {
+  console.error(`❌ FATAL ERROR: Unknown TTS model "${defaultModel}"`);
+  console.error(`❌ LỖI NGHIÊM TRỌNG: TTS model "${defaultModel}" không được biết đến`);
+  console.error(`📋 Available models: ${Object.keys(TTS_BACKENDS).map(k => TTS_BACKENDS[k].model).join(', ')}`);
+  console.error(`📋 Các model có sẵn: ${Object.keys(TTS_BACKENDS).map(k => TTS_BACKENDS[k].model).join(', ')}`);
+  console.error(`💡 Set TTS_DEFAULT_MODEL environment variable to a valid model`);
+  console.error(`💡 Thiết lập biến môi trường TTS_DEFAULT_MODEL thành một model hợp lệ`);
+  process.exit(1);
+}
+
+console.log(`✅ TTS Model validated: ${defaultModel} (${backendConfig.displayName})`);
+console.log(`✅ TTS Model đã được xác thực: ${defaultModel} (${backendConfig.displayName})`);
+console.log(`📡 TTS Backend URL: ${backendConfig.baseURL}`);
+console.log(`🎤 Default Voice: ${backendConfig.defaultVoice}`);
 
 // Create Express app
 const app = express();
