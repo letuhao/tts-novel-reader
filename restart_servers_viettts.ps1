@@ -200,5 +200,7 @@ try {
     Write-Host "⚠️  Không thể tự động mở trình duyệt. Vui lòng mở http://localhost:5173 thủ công" -ForegroundColor Yellow
 }
 
+cd ..\..
+
 Write-Host ""
 
