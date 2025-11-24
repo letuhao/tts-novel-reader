@@ -5,6 +5,63 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * Safely format objects for logging without dumping huge payloads
+ * Định dạng dữ liệu an toàn để log mà không ghi toàn bộ payload lớn
+ */
+const formatSafeJson = (data, maxLength = 2000) => {
+  try {
+    if (data === undefined) return 'undefined';
+    if (data === null) return 'null';
+    const json = typeof data === 'string' ? data : JSON.stringify(data);
+    if (json.length > maxLength) {
+      return `${json.slice(0, maxLength)}... [truncated ${json.length - maxLength} chars]`;
+    }
+    return json;
+  } catch (error) {
+    return `[Unserializable data: ${error.message}]`;
+  }
+};
+
+const isPlainObject = (value) =>
+  value !== null &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  !Buffer.isBuffer(value);
+
+const extractMetadataPayload = (responseBody) => {
+  if (!responseBody) {
+    return null;
+  }
+
+  if (isPlainObject(responseBody)) {
+    if (isPlainObject(responseBody.file_metadata)) {
+      return responseBody.file_metadata;
+    }
+    if (isPlainObject(responseBody.metadata)) {
+      return responseBody.metadata;
+    }
+    return responseBody;
+  }
+
+  if (typeof responseBody === 'string') {
+    try {
+      const parsed = JSON.parse(responseBody);
+      if (isPlainObject(parsed.file_metadata)) {
+        return parsed.file_metadata;
+      }
+      if (isPlainObject(parsed.metadata)) {
+        return parsed.metadata;
+      }
+      return isPlainObject(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
 export class TTSService {
   constructor(baseURL = 'http://127.0.0.1:11111') {
     this.baseURL = baseURL || process.env.TTS_BACKEND_URL || 'http://127.0.0.1:11111';
@@ -169,8 +226,8 @@ export class TTSService {
       if (!finalFileId) {
         console.error(`[TTS Service] [generateAudio] ❌ CRITICAL: No file ID found in response!`);
         console.error(`[TTS Service] [generateAudio] ❌ QUAN TRỌNG: Không tìm thấy file ID trong phản hồi!`);
-        console.error(`[TTS Service] [generateAudio] Headers:`, JSON.stringify(response.headers, null, 2));
-        console.error(`[TTS Service] [generateAudio] Body:`, JSON.stringify(response.data, null, 2));
+        console.error(`[TTS Service] [generateAudio] Headers:`, formatSafeJson(response.headers));
+        console.error(`[TTS Service] [generateAudio] Body:`, formatSafeJson(response.data));
         throw new Error('TTS backend did not return a file ID. Check TTS backend logs.');
       }
       
@@ -189,15 +246,22 @@ export class TTSService {
         return result;
       }
       
-      // Return metadata from response body
+      // Return metadata from response body (object only, ignore binary payloads)
+      const metadataPayload = extractMetadataPayload(response.data);
       const result = {
         requestId: requestId || uuidv4(),
         fileId: finalFileId,
-        metadata: response.data?.file_metadata || response.data,
+        metadata: metadataPayload,
         expiresAt: finalExpiresAt
       };
       console.log(`[TTS Service] [generateAudio] ✅ Returning metadata`);
-      console.log(`[TTS Service] [generateAudio] Result:`, JSON.stringify(result, null, 2));
+      const metadataKeys = result.metadata ? Object.keys(result.metadata) : [];
+      console.log(`[TTS Service] [generateAudio] Result summary:`, {
+        requestId: result.requestId,
+        fileId: result.fileId,
+        metadataKeys,
+        metadataKeyCount: metadataKeys.length
+      });
       return result;
     } catch (error) {
       // Re-throw skip errors as-is so worker can handle them
@@ -212,7 +276,7 @@ export class TTSService {
       console.error(`[TTS Service] [generateAudio] Error stack: ${error.stack}`);
       if (error.response) {
         console.error(`[TTS Service] [generateAudio] Response status: ${error.response.status}`);
-        console.error(`[TTS Service] [generateAudio] Response data:`, JSON.stringify(error.response.data, null, 2));
+        console.error(`[TTS Service] [generateAudio] Response data:`, formatSafeJson(error.response.data));
         
         // Check if error response indicates skipped paragraph
         // Kiểm tra xem phản hồi lỗi có cho biết paragraph bị bỏ qua không
