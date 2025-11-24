@@ -27,7 +27,8 @@ export class RoleDetectionWorker {
   async detectChapterRoles(novelId, chapterNumber, options = {}) {
     const {
       updateProgress = true,
-      saveMetadata = true
+      saveMetadata = true,
+      forceRegenerateRoles = false
     } = options;
 
     try {
@@ -51,6 +52,71 @@ export class RoleDetectionWorker {
       console.log(`[RoleDetectionWorker] Detecting roles for chapter ${chapterNumber}`);
       console.log(`[RoleDetectionWorker] Phát hiện vai diễn cho chapter ${chapterNumber}`);
       console.log(`[RoleDetectionWorker] Total paragraphs: ${paragraphs.length}`);
+      console.log(`[RoleDetectionWorker] Force regenerate roles: ${forceRegenerateRoles}`);
+
+      // Filter paragraphs that need role detection
+      // Lọc các paragraphs cần phát hiện vai diễn
+      let paragraphsToDetect = paragraphs;
+      let skippedCount = 0;
+      
+      // Count paragraphs with existing roles for logging
+      const paragraphsWithRoles = paragraphs.filter(p => p.role && p.voiceId).length;
+      const paragraphsWithoutRoles = paragraphs.length - paragraphsWithRoles;
+      
+      console.log(`[RoleDetectionWorker] Paragraphs status: ${paragraphsWithRoles} with roles, ${paragraphsWithoutRoles} without roles`);
+      
+      if (!forceRegenerateRoles) {
+        // Skip paragraphs that already have roles
+        // Bỏ qua các paragraphs đã có vai diễn
+        const paragraphsNeedingRoles = paragraphs.filter(p => !p.role || !p.voiceId);
+        skippedCount = paragraphs.length - paragraphsNeedingRoles.length;
+        
+        if (skippedCount > 0) {
+          console.log(`[RoleDetectionWorker] Skipping ${skippedCount} paragraphs that already have roles`);
+          console.log(`[RoleDetectionWorker] Bỏ qua ${skippedCount} paragraphs đã có vai diễn`);
+        }
+        
+        if (paragraphsNeedingRoles.length === 0) {
+          console.log(`[RoleDetectionWorker] All paragraphs already have roles. Nothing to detect.`);
+          console.log(`[RoleDetectionWorker] Tất cả paragraphs đã có vai diễn. Không cần phát hiện.`);
+          
+          // Update progress to completed
+          if (updateProgress && progressId) {
+            try {
+              await GenerationProgressModel.update(progressId, {
+                status: 'completed',
+                progressPercent: 100,
+                completedAt: new Date().toISOString()
+              });
+            } catch (progressError) {
+              // Ignore progress update errors
+            }
+          }
+          
+          return {
+            novelId: novelId,
+            chapterNumber: chapterNumber,
+            totalParagraphs: paragraphs.length,
+            updatedParagraphs: 0,
+            skippedParagraphs: skippedCount,
+            roleCounts: {},
+            voiceCounts: {},
+            processingTime: '0.00',
+            message: 'All paragraphs already have roles'
+          };
+        }
+        
+        paragraphsToDetect = paragraphsNeedingRoles;
+      } else {
+        // Force regenerate: process ALL paragraphs regardless of existing roles
+        // Ép tạo lại: xử lý TẤT CẢ paragraphs bất kể vai diễn hiện có
+        console.log(`[RoleDetectionWorker] Force regenerate mode: Will overwrite roles for ALL ${paragraphs.length} paragraphs`);
+        console.log(`[RoleDetectionWorker] Chế độ ép tạo lại: Sẽ ghi đè vai diễn cho TẤT CẢ ${paragraphs.length} paragraphs`);
+        paragraphsToDetect = paragraphs; // Process all paragraphs
+        skippedCount = 0; // No skipping in force regenerate mode
+      }
+      
+      console.log(`[RoleDetectionWorker] Will detect roles for ${paragraphsToDetect.length} paragraphs`);
 
       // Track progress (declare outside try-catch so it's accessible in catch block)
       let progressId = null;
@@ -73,8 +139,27 @@ export class RoleDetectionWorker {
       }
 
       // Prepare paragraphs for detection
-      const paragraphTexts = paragraphs.map(p => p.text);
-      const chapterContext = paragraphs.map(p => p.text).join('\n\n');
+      // Chuẩn bị paragraphs để phát hiện
+      const paragraphTexts = paragraphsToDetect.map(p => p.text || ''); // Handle null/undefined text
+      const chapterContext = paragraphs.map(p => p.text || '').join('\n\n');
+      
+      // Log what we're about to process
+      const paragraphsWithText = paragraphTexts.filter(t => t && t.trim().length > 0).length;
+      const paragraphsWithoutText = paragraphTexts.length - paragraphsWithText;
+      console.log(`[RoleDetectionWorker] Preparing ${paragraphsToDetect.length} paragraphs for detection:`);
+      console.log(`[RoleDetectionWorker]   - ${paragraphsWithText} paragraphs with text`);
+      console.log(`[RoleDetectionWorker]   - ${paragraphsWithoutText} paragraphs without text (will get 'narrator' role)`);
+      if (forceRegenerateRoles) {
+        console.log(`[RoleDetectionWorker] Force regenerate mode: ALL paragraphs will be processed and overwritten`);
+      }
+      
+      // Create a mapping from paragraph index to original paragraph index
+      // Tạo mapping từ index paragraph cần phát hiện đến index paragraph gốc
+      const indexMap = new Map();
+      paragraphsToDetect.forEach((p, idx) => {
+        const originalIdx = paragraphs.findIndex(orig => orig.id === p.id);
+        indexMap.set(idx, originalIdx);
+      });
 
       // Initialize role detection service
       const roleService = getRoleDetectionService();
@@ -102,14 +187,21 @@ export class RoleDetectionWorker {
 
       // Update paragraphs in database
       console.log(`[RoleDetectionWorker] Updating paragraphs in database...`);
+      console.log(`[RoleDetectionWorker] Role detection result: ${Object.keys(result.role_map).length} roles detected from ${paragraphsToDetect.length} paragraphs`);
+      
       let updatedCount = 0;
+      let skippedInUpdate = 0;
 
-      for (const [idx, paragraph] of paragraphs.entries()) {
-        const role = result.role_map[idx];
-        const voiceId = result.voice_map[idx];
+      // Update ALL paragraphs that were in paragraphsToDetect (force regenerate mode processes all)
+      // Cập nhật TẤT CẢ paragraphs đã được đưa vào paragraphsToDetect (chế độ ép tạo lại xử lý tất cả)
+      for (const [detectedIdx, detectedParagraph] of paragraphsToDetect.entries()) {
+        const role = result.role_map[detectedIdx];
+        const voiceId = result.voice_map[detectedIdx];
 
         if (role && voiceId) {
-          await ParagraphModel.update(paragraph.id, {
+          // Always update when we have a valid role (this overwrites existing roles in force regenerate mode)
+          // Luôn cập nhật khi có vai diễn hợp lệ (điều này ghi đè vai diễn hiện có trong chế độ ép tạo lại)
+          await ParagraphModel.update(detectedParagraph.id, {
             role: role,
             voiceId: voiceId
           });
@@ -117,7 +209,7 @@ export class RoleDetectionWorker {
 
           // Update progress every 10 paragraphs
           if (updateProgress && progressId && updatedCount % 10 === 0) {
-            const progressPercent = Math.floor((updatedCount / paragraphs.length) * 100);
+            const progressPercent = Math.floor((updatedCount / paragraphsToDetect.length) * 100);
             try {
               await GenerationProgressModel.update(progressId, {
                 progressPercent: progressPercent
@@ -126,7 +218,21 @@ export class RoleDetectionWorker {
               // Ignore progress update errors
             }
           }
+        } else {
+          // Log paragraphs that didn't get roles from detection
+          // Ghi log các paragraphs không nhận được vai diễn từ phát hiện
+          skippedInUpdate++;
+          console.warn(`[RoleDetectionWorker] ⚠️ No role detected for paragraph ${detectedParagraph.paragraphNumber || detectedIdx + 1} (index ${detectedIdx})`);
         }
+      }
+      
+      // Count skipped paragraphs (those without roles in detection result)
+      // Đếm các paragraphs bị bỏ qua (những cái không có vai diễn trong kết quả phát hiện)
+      skippedCount += skippedInUpdate;
+      
+      if (skippedInUpdate > 0) {
+        console.warn(`[RoleDetectionWorker] ⚠️ ${skippedInUpdate} paragraphs did not get roles from detection`);
+        console.warn(`[RoleDetectionWorker] ⚠️ ${skippedInUpdate} paragraphs không nhận được vai diễn từ phát hiện`);
       }
 
       console.log(`[RoleDetectionWorker] Updated ${updatedCount} paragraphs in database`);
@@ -166,6 +272,7 @@ export class RoleDetectionWorker {
         chapterNumber: chapterNumber,
         totalParagraphs: paragraphs.length,
         updatedParagraphs: updatedCount,
+        skippedParagraphs: skippedCount,
         roleCounts: roleCounts,
         voiceCounts: voiceCounts,
         processingTime: duration,
@@ -229,7 +336,8 @@ export class RoleDetectionWorker {
     const {
       updateProgress = true,
       saveMetadata = true,
-      overwriteComplete = false  // If true, re-detect even complete chapters
+      overwriteComplete = false,  // If true, re-detect even complete chapters
+      forceRegenerateRoles = false  // If true, overwrite existing roles in paragraphs
     } = options;
 
     try {
@@ -313,6 +421,7 @@ export class RoleDetectionWorker {
         try {
           // Detect roles for this chapter
           const result = await this.detectChapterRoles(novelId, chapterNumber, {
+            forceRegenerateRoles: forceRegenerateRoles,
             updateProgress: false, // We'll update overall progress instead
             saveMetadata: saveMetadata
           });

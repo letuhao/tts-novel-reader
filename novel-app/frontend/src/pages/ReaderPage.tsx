@@ -50,6 +50,7 @@ function ReaderPage() {
   const [showResumePrompt, setShowResumePrompt] = useState(false)
   const [hasLoadedProgress, setHasLoadedProgress] = useState(false)
   const [forceRegenerate, setForceRegenerate] = useState(false)
+  const [forceRegenerateRoles, setForceRegenerateRoles] = useState(false)
   const [roleDetectionLoading, setRoleDetectionLoading] = useState(false)
   const [roleDetectionLoadingText, setRoleDetectionLoadingText] = useState<string>('')
   const paragraphRefs = useRef<Map<number, HTMLParagraphElement>>(new Map())
@@ -287,7 +288,9 @@ function ReaderPage() {
       setRoleDetectionLoadingText(`Starting role detection for Chapter ${chapterNumber}...`)
 
       // Start detection (returns immediately with progressId)
-      const startResult = await roleDetectionService.detectChapterRoles(id, chapterNumber)
+      const startResult = await roleDetectionService.detectChapterRoles(id, chapterNumber, {
+        forceRegenerateRoles: forceRegenerateRoles
+      })
       
       // Poll for completion (check status every 3 seconds)
       const maxAttempts = 600 // 30 minutes max (600 * 3s = 1800s)
@@ -349,7 +352,9 @@ function ReaderPage() {
       setRoleDetectionLoading(true)
       setRoleDetectionLoadingText('Detecting roles for all chapters...')
 
-      const result = await roleDetectionService.detectNovelRoles(id)
+      const result = await roleDetectionService.detectNovelRoles(id, {
+        forceRegenerateRoles: forceRegenerateRoles
+      })
       
       // Reload current chapter to get updated paragraphs
       if (chapterNumber) {
@@ -404,6 +409,8 @@ function ReaderPage() {
         onDetectNovelRoles={id ? handleDetectNovelRoles : undefined}
         roleDetectionLoading={roleDetectionLoading}
         roleDetectionLoadingText={roleDetectionLoadingText}
+        forceRegenerateRoles={forceRegenerateRoles}
+        onForceRegenerateRolesChange={setForceRegenerateRoles}
       />
 
       {/* Resume Reading Prompt */}

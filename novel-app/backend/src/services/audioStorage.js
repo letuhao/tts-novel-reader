@@ -11,6 +11,74 @@ import fs from 'fs/promises';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const METADATA_MAX_STRING_LENGTH = 2048;
+const METADATA_MAX_ARRAY_LENGTH = 50;
+const BINARY_STRING_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
+const BINARY_KEY_HINTS = ['audio', 'binary', 'data', 'blob', 'wav', 'wave'];
+
+const keyPathLooksBinary = (keyPath = '') => {
+  const lower = keyPath.toLowerCase();
+  return BINARY_KEY_HINTS.some(hint => lower.includes(hint));
+};
+
+const summarizeBinaryValue = (value, keyPath = 'metadata') => {
+  const size = typeof value === 'string'
+    ? value.length
+    : value?.byteLength || value?.length || 0;
+  return {
+    note: `Binary data omitted from ${keyPath}`,
+    byteLength: size
+  };
+};
+
+const sanitizeMetadataPayload = (value, keyPath = 'metadata') => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return summarizeBinaryValue(value, keyPath);
+  }
+
+  if (typeof value === 'string') {
+    const containsControlChars = BINARY_STRING_REGEX.test(value);
+    if (containsControlChars || (keyPathLooksBinary(keyPath) && value.length > 256)) {
+      return summarizeBinaryValue(value, keyPath);
+    }
+    if (value.length > METADATA_MAX_STRING_LENGTH) {
+      return `${value.slice(0, METADATA_MAX_STRING_LENGTH)}... [truncated ${value.length - METADATA_MAX_STRING_LENGTH} chars]`;
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const limited = value
+      .slice(0, METADATA_MAX_ARRAY_LENGTH)
+      .map((item, index) => sanitizeMetadataPayload(item, `${keyPath}[${index}]`));
+    if (value.length > METADATA_MAX_ARRAY_LENGTH) {
+      limited.push({ note: `Truncated ${value.length - METADATA_MAX_ARRAY_LENGTH} additional items` });
+    }
+    return limited;
+  }
+
+  if (typeof value === 'object') {
+    const sanitized = {};
+    for (const [childKey, childValue] of Object.entries(value)) {
+      sanitized[childKey] = sanitizeMetadataPayload(childValue, `${keyPath}.${childKey}`);
+    }
+    return sanitized;
+  }
+
+  return value;
+};
+
+const hasUsableMetadata = (metadata) => (
+  metadata &&
+  typeof metadata === 'object' &&
+  !Array.isArray(metadata) &&
+  !Buffer.isBuffer(metadata)
+);
+
 export class AudioStorageService {
   constructor() {
     this.ttsService = new TTSService();
@@ -276,6 +344,20 @@ export class AudioStorageService {
       console.log(`[AudioStorage] ✅ Bước 1: Đã tạo audio thành công!`);
       console.log(`[AudioStorage] File ID: ${audioMetadata.fileId}`);
       console.log(`[AudioStorage] Expires At: ${audioMetadata.expiresAt}`);
+
+      if (!hasUsableMetadata(audioMetadata.metadata)) {
+        try {
+          const fetchedMetadata = await this.ttsService.getAudioMetadata(audioMetadata.fileId);
+          if (hasUsableMetadata(fetchedMetadata)) {
+            audioMetadata.metadata = fetchedMetadata;
+            console.log(`[AudioStorage] Step 1a: Loaded metadata details from TTS backend`);
+          } else if (fetchedMetadata) {
+            console.warn(`[AudioStorage] ⚠️ Metadata endpoint returned unsupported format for file ${audioMetadata.fileId}`);
+          }
+        } catch (metadataError) {
+          console.warn(`[AudioStorage] ⚠️ Could not fetch metadata for file ${audioMetadata.fileId}: ${metadataError.message}`);
+        }
+      }
       
       // Step 2: Ensure storage directory exists for metadata and audio
       console.log(`[AudioStorage] Step 2: Ensuring storage directory exists...`);
@@ -488,7 +570,8 @@ export class AudioStorageService {
       const paragraphIndex = localInfo?.paragraphIndex !== undefined ? localInfo.paragraphIndex : null;
       
       // Extract audio information from TTS backend metadata
-      const ttsMetadata = audioMetadata.metadata || audioMetadata.metadata || {};
+      const rawTtsMetadata = hasUsableMetadata(audioMetadata.metadata) ? audioMetadata.metadata : null;
+      const ttsMetadata = rawTtsMetadata || {};
       const audioDuration = ttsMetadata.duration_seconds || ttsMetadata.duration || null;
       const sampleRate = ttsMetadata.sample_rate || null;
       const audioFileSize = ttsMetadata.file_size || null;
@@ -538,7 +621,7 @@ export class AudioStorageService {
         
         expiresAt: audioMetadata.expiresAt || audioMetadata.metadata?.expires_at,
         createdAt: new Date().toISOString(),
-        metadata: ttsMetadata  // Full TTS backend metadata (for reference)
+        metadata: sanitizeMetadataPayload(audioMetadata.metadata)  // Sanitized TTS metadata (no binary blobs)
       };
       
       console.log(`[AudioStorage] [saveMetadata] Metadata prepared:`);

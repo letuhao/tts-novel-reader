@@ -113,22 +113,70 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
         # Validate text input / Xác thực input văn bản
         text = request.text.strip() if request.text else ""
         
-        # Check if text exists and is meaningful
-        # Kiểm tra text có tồn tại và có nghĩa không
+        # Check if text exists
+        # Kiểm tra text có tồn tại không
         if not text or len(text) == 0:
             raise ValueError(
                 f"Text is empty. Cannot generate audio from empty text."
             )
         
-        # Check for meaningful content (at least 10 characters, not just punctuation)
-        # Kiểm tra nội dung có nghĩa (ít nhất 10 ký tự, không chỉ dấu câu)
+        # Check for meaningful content (ignore meaningless paragraphs like separator lines)
+        # Kiểm tra nội dung có nghĩa (bỏ qua các đoạn văn vô nghĩa như dòng phân cách)
         meaningful_text = ''.join(c for c in text if c.isalnum() or c.isspace()).strip()
         
-        if len(text) < 10 or len(meaningful_text) < 5:
-            raise ValueError(
-                f"Text is too short or contains only punctuation (length: {len(text)}, meaningful: {len(meaningful_text)}). "
-                f"Minimum length: 10 characters with at least 5 meaningful characters. "
-                f"Text preview: '{text[:50]}...'"
+        # Detect meaningless paragraphs (only punctuation, separators, etc.)
+        # Phát hiện các đoạn văn vô nghĩa (chỉ dấu câu, dấu phân cách, v.v.)
+        if len(meaningful_text) < 5:
+            # Check if it's a separator line (all dashes, equals, underscores, etc.)
+            # Kiểm tra nếu là dòng phân cách (toàn dấu gạch ngang, dấu bằng, gạch dưới, v.v.)
+            stripped_text = text.strip()
+            if stripped_text:
+                # Remove whitespace to check core characters
+                # Loại bỏ khoảng trắng để kiểm tra ký tự cốt lõi
+                core_text = ''.join(c for c in stripped_text if not c.isspace())
+                if core_text:
+                    # Check if text contains only separator/decorator characters
+                    # Kiểm tra nếu text chỉ chứa ký tự phân cách/trang trí
+                    separator_chars = set('-=_~*#@$%^&+|\\/<>{}[]()')
+                    punctuation_chars = set('.,:;!?')
+                    if all(c in separator_chars or c in punctuation_chars for c in core_text):
+                        # Return early with a skipped response (silent skip)
+                        # Trả về sớm với phản hồi đã bỏ qua (bỏ qua im lặng)
+                        from fastapi.responses import JSONResponse
+                        request_id = str(uuid.uuid4())
+                        return JSONResponse(
+                            content={
+                                "success": True,
+                                "skipped": True,
+                                "request_id": request_id,
+                                "model": request.model,
+                                "reason": "Meaningless paragraph (separator/decorator line) - skipped silently",
+                                "sample_rate": 24000,
+                                "duration_seconds": 0.0,
+                                "file_metadata": None
+                            },
+                            headers={"X-Request-ID": request_id, "X-Skipped": "true"}
+                        )
+        
+        # Original validation for very short text (but allow if it has meaningful content)
+        # Xác thực gốc cho text quá ngắn (nhưng cho phép nếu có nội dung có nghĩa)
+        if len(text) < 10 and len(meaningful_text) < 5:
+            # Still skip silently if no meaningful content
+            # Vẫn bỏ qua im lặng nếu không có nội dung có nghĩa
+            from fastapi.responses import JSONResponse
+            request_id = str(uuid.uuid4())
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "skipped": True,
+                    "request_id": request_id,
+                    "model": request.model,
+                    "reason": "Text too short or contains only punctuation - skipped silently",
+                    "sample_rate": 24000,
+                    "duration_seconds": 0.0,
+                    "file_metadata": None
+                },
+                headers={"X-Request-ID": request_id, "X-Skipped": "true"}
             )
         
         import time
