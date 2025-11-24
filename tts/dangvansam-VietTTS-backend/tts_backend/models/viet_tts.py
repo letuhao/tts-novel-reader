@@ -67,8 +67,74 @@ def _patch_diffusers():
         pass
     return False
 
-# Apply patch before importing viettts
+# Patch vinorm BEFORE importing viettts (fixes WinError 193 on Windows)
+# Sửa vinorm TRƯỚC khi import viettts (sửa lỗi WinError 193 trên Windows)
+def _patch_vinorm():
+    """Patch viettts/utils/frontend_utils.py to use underthesea instead of vinorm"""
+    try:
+        frontend_utils_file = VIETTTS_REPO_PATH / "viettts" / "utils" / "frontend_utils.py"
+        
+        if not frontend_utils_file.exists():
+            return False
+        
+        content = frontend_utils_file.read_text(encoding="utf-8")
+        
+        # Check if already patched
+        if "VINORM_PATCH" in content:
+            return True
+        
+        # Simple Vietnamese text normalization using underthesea
+        underthesea_normalize_code = '''def _underthesea_normalize(text: str, lower: bool = False) -> str:
+    """
+    Simple Vietnamese text normalization using underthesea
+    Chuẩn hóa văn bản tiếng Việt đơn giản sử dụng underthesea
+    
+    This replaces vinorm's TTSnorm to avoid WinError 193 on Windows.
+    Điều này thay thế TTSnorm của vinorm để tránh WinError 193 trên Windows.
+    """
+    try:
+        from underthesea import text_normalize
+        normalized = text_normalize(text)
+        if lower:
+            normalized = normalized.lower()
+        return normalized
+    except ImportError:
+        # Fallback: return text as-is if underthesea is not available
+        # Dự phòng: trả về text như cũ nếu underthesea không có sẵn
+        if lower:
+            return text.lower()
+        return text
+'''
+        
+        # Replace vinorm import and TTSnorm usage
+        if "from vinorm import TTSnorm" in content:
+            # Build replacement string with proper newlines
+            replacement = (
+                "# VINORM_PATCH: Replaced vinorm with underthesea to fix WinError 193 on Windows\n"
+                "# VINORM_PATCH: Thay thế vinorm bằng underthesea để sửa WinError 193 trên Windows\n"
+                f"{underthesea_normalize_code}\n"
+                "# Original: from vinorm import TTSnorm"
+            )
+            content = content.replace("from vinorm import TTSnorm", replacement)
+            
+            if "text = TTSnorm(text, lower=False)" in content:
+                content = content.replace(
+                    "    text = TTSnorm(text, lower=False)",
+                    "    text = _underthesea_normalize(text, lower=False)  # VINORM_PATCH: Use underthesea instead of vinorm"
+                )
+            
+            frontend_utils_file.write_text(content, encoding="utf-8")
+            print("✅ Patched vinorm (vinorm -> underthesea)")
+            print("✅ Đã sửa vinorm (vinorm -> underthesea)")
+            return True
+    except Exception as e:
+        print(f"⚠️  Could not patch vinorm: {e}")
+        print(f"⚠️  Không thể sửa vinorm: {e}")
+    return False
+
+# Apply patches before importing viettts
 _patch_diffusers()
+_patch_vinorm()
 
 # Import VietTTS classes
 from viettts.tts import TTS

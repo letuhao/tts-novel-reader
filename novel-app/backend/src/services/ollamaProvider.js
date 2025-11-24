@@ -157,32 +157,40 @@ export class OllamaProvider {
       // Try to fix incomplete JSON (common when response is truncated)
       // Attempt to recover from truncated responses
       if (!jsonStr.endsWith('}')) {
-        // Find the last complete key-value pair
-        const lastCommaIndex = jsonStr.lastIndexOf(',');
-        const lastColonIndex = jsonStr.lastIndexOf(':');
+        // Improved recovery: find the last complete key-value pair
+        // Pattern: "N": "role",
+        const completePairPattern = /"(\d+)":\s*"([^"]*)"\s*,?\s*/g;
+        const matches = [];
+        let match;
+        let lastMatchEnd = 0;
         
-        if (lastCommaIndex > lastColonIndex) {
-          // We have a comma but the value is incomplete
-          // Try to close the JSON properly
-          jsonStr = jsonStr.substring(0, lastCommaIndex);
-          jsonStr += '}';
-        } else if (lastColonIndex > 0) {
-          // We have a colon but incomplete value
-          // Find the key and remove the incomplete entry
-          const beforeColon = jsonStr.substring(0, lastColonIndex);
-          const keyStart = beforeColon.lastIndexOf('"');
-          if (keyStart > 0) {
-            const keyEnd = jsonStr.indexOf('"', keyStart + 1);
-            if (keyEnd > keyStart) {
-              // Remove from the incomplete key onwards
-              const beforeKey = jsonStr.lastIndexOf(',', keyStart - 1);
-              if (beforeKey > 0) {
-                jsonStr = jsonStr.substring(0, beforeKey);
-              } else {
-                // This was the first key, just remove it
-                jsonStr = jsonStr.substring(0, keyStart - 1);
+        while ((match = completePairPattern.exec(jsonStr)) !== null) {
+          matches.push({
+            key: match[1],
+            value: match[2],
+            end: match.index + match[0].length
+          });
+          lastMatchEnd = match.index + match[0].length;
+        }
+        
+        if (matches.length > 0) {
+          // Use all complete pairs found
+          const reconstructed = '{' + matches.map(m => `"${m.key}": "${m.value}"`).join(', ') + '}';
+          jsonStr = reconstructed;
+        } else {
+          // Fallback: try to close at last comma
+          const lastCommaIndex = jsonStr.lastIndexOf(',');
+          if (lastCommaIndex > 0) {
+            jsonStr = jsonStr.substring(0, lastCommaIndex) + '}';
+          } else {
+            // No comma found, try to close at last colon
+            const lastColonIndex = jsonStr.lastIndexOf(':');
+            if (lastColonIndex > 0) {
+              const beforeColon = jsonStr.substring(0, lastColonIndex);
+              const keyStart = beforeColon.lastIndexOf('"');
+              if (keyStart > 0) {
+                jsonStr = jsonStr.substring(0, keyStart - 1) + '}';
               }
-              jsonStr += '}';
             }
           }
         }
@@ -200,19 +208,20 @@ export class OllamaProvider {
         // Use original response for recovery, not processed jsonStr
         const originalResponse = response.trim();
         
-        // Find the last complete key-value pair and close the JSON
-        // Look for pattern: "N": "role",
-        const pattern = /"(\d+)":\s*"([^"]*)"/g;
+        // Improved recovery: find ALL complete key-value pairs
+        // Look for pattern: "N": "role", or "N": "role"}
+        const pattern = /"(\d+)":\s*"([^"]*)"\s*,?\s*/g;
         const matches = [];
         let match;
         
         while ((match = pattern.exec(originalResponse)) !== null) {
-          // Verify the value is a valid role
-          const role = match[2].toLowerCase();
-          if (['narrator', 'male', 'female'].includes(role) || role.length > 0) {
+          const role = match[2].trim();
+          // Accept any non-empty role value (not just narrator/male/female)
+          // This allows recovery even if role names are slightly different
+          if (role.length > 0) {
             matches.push({
               key: match[1],
-              value: match[2],
+              value: role,
               index: match.index
             });
           }
@@ -220,8 +229,18 @@ export class OllamaProvider {
         
         // If we found valid entries, reconstruct JSON
         if (matches.length > 0) {
-          const reconstructed = '{' + matches.map(m => `"${m.key}": "${m.value}"`).join(', ') + '}';
-          console.warn(`[OllamaProvider] Recovered ${matches.length} entries from truncated JSON (original length: ${originalResponse.length})`);
+          // Remove duplicates (keep last occurrence if key appears multiple times)
+          const uniqueMatches = [];
+          const seenKeys = new Set();
+          for (let i = matches.length - 1; i >= 0; i--) {
+            if (!seenKeys.has(matches[i].key)) {
+              uniqueMatches.unshift(matches[i]);
+              seenKeys.add(matches[i].key);
+            }
+          }
+          
+          const reconstructed = '{' + uniqueMatches.map(m => `"${m.key}": "${m.value}"`).join(', ') + '}';
+          console.warn(`[OllamaProvider] Recovered ${uniqueMatches.length} entries from truncated JSON (original length: ${originalResponse.length})`);
           const recovered = JSON.parse(reconstructed);
           return recovered;
         }

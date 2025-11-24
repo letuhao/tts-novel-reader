@@ -118,49 +118,52 @@ export class NovelParser {
   /**
    * Parse chapters from content
    * Parse chapters từ nội dung
+   * 
+   * CRITICAL: This function ensures NO TEXT IS LOST
+   * QUAN TRỌNG: Hàm này đảm bảo KHÔNG MẤT TEXT
+   * 
+   * Strategy:
+   * 1. First, find all chapter marker positions (line indexes)
+   * 2. Then, extract text between those positions
+   * 3. This ensures all text is captured, even if chapter detection is imperfect
+   * 
+   * Chiến lược:
+   * 1. Đầu tiên, tìm tất cả vị trí chapter marker (chỉ số dòng)
+   * 2. Sau đó, trích xuất text giữa các vị trí đó
+   * 3. Điều này đảm bảo tất cả text được capture, ngay cả khi phát hiện chapter không hoàn hảo
    */
   static parseChapters(content) {
-    const chapters = [];
     const lines = content.split('\n');
+    const chapters = [];
     
-    let currentChapter = null;
-    let currentParagraph = [];
-    let chapterNumber = 0;
-    // Use 1-based indexing for paragraph numbers (paragraph_001, paragraph_002, etc.)
-    // Sử dụng đánh số bắt đầu từ 1 cho paragraph (paragraph_001, paragraph_002, v.v.)
-    let paragraphNumber = 1;
+    // Step 1: Find all chapter marker positions (line indexes)
+    // Bước 1: Tìm tất cả vị trí chapter marker (chỉ số dòng)
+    const chapterMarkers = [];
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       
-      // Skip empty lines between chapters
-      if (!line && !currentChapter) {
-        continue;
-      }
-      
-      // Chapter detection - Multiple patterns
+      // Chapter detection patterns
       // Pattern 1: "Chương 1", "Chương 2:", etc.
-      // Pattern 2: "Thứ 0001 chương", "Thứ 1 chương", etc. (Vietnamese format)
-      // Pattern 3: "Chapter 1", etc.
       let chapterMatch = line.match(/^Chương\s*(\d+)[:：]?\s*(.*)$/i);
       let chapterNumber = null;
       let chapterTitle = null;
       
-      if (!chapterMatch) {
-        // Try "Thứ XXXX chương" format
+      if (chapterMatch) {
+        chapterNumber = parseInt(chapterMatch[1]);
+        chapterTitle = chapterMatch[2]?.trim() || `Chương ${chapterNumber}`;
+      } else {
+        // Pattern 2: "Thứ XXXX chương"
         const thuMatch = line.match(/^Thứ\s+(\d+)\s+chương\s*[:：]?\s*(.*)$/i);
         if (thuMatch) {
           chapterNumber = parseInt(thuMatch[1]);
-          chapterTitle = thuMatch[2].trim() || `Chương ${chapterNumber}`;
-          chapterMatch = thuMatch; // Use this match
+          chapterTitle = thuMatch[2]?.trim() || `Chương ${chapterNumber}`;
+          chapterMatch = thuMatch;
         }
-      } else {
-        chapterNumber = parseInt(chapterMatch[1]);
-        chapterTitle = chapterMatch[2]?.trim() || `Chương ${chapterNumber}`;
       }
       
-      // Also try English "Chapter X" format
       if (!chapterMatch) {
+        // Pattern 3: "Chapter X"
         const engMatch = line.match(/^Chapter\s+(\d+)[:：]?\s*(.*)$/i);
         if (engMatch) {
           chapterNumber = parseInt(engMatch[1]);
@@ -169,104 +172,217 @@ export class NovelParser {
         }
       }
       
-      if (chapterMatch) {
-        // Save previous chapter
-        if (currentChapter) {
-          if (currentParagraph.length > 0) {
-            currentChapter.paragraphs.push({
-              id: uuidv4(),
-              paragraphNumber: paragraphNumber++,
-              lines: currentParagraph,
-              text: currentParagraph.join('\n')
-            });
-          }
-          chapters.push(currentChapter);
-        }
-        
-        // Start new chapter
-        if (!chapterNumber) {
-          chapterNumber = parseInt(chapterMatch[1]);
-        }
-        if (!chapterTitle) {
-          chapterTitle = chapterMatch[2]?.trim() || `Chương ${chapterNumber}`;
-        }
-        
-        currentChapter = {
-          id: uuidv4(),
+      if (chapterMatch && chapterNumber !== null) {
+        chapterMarkers.push({
+          lineIndex: i,
           chapterNumber: chapterNumber,
-          title: chapterTitle,
-          paragraphs: [],
-          totalParagraphs: 0,
-          totalLines: 0
-        };
-        
-        currentParagraph = [];
-        // Reset paragraph number to 1 for new chapter (1-based indexing)
-        // Đặt lại số paragraph về 1 cho chapter mới (đánh số bắt đầu từ 1)
-        paragraphNumber = 1;
-        continue;
-      }
-      
-      // If we have a chapter
-      if (currentChapter) {
-        // Empty line = paragraph break (but preserve single empty lines within paragraphs)
-        if (!line) {
-          // If we have content in current paragraph, save it
-          if (currentParagraph.length > 0) {
-            currentChapter.paragraphs.push({
-              id: uuidv4(),
-              paragraphNumber: paragraphNumber++,
-              lines: currentParagraph,
-              text: currentParagraph.join('\n')
-            });
-            currentChapter.totalLines += currentParagraph.length;
-            currentParagraph = [];
-          }
-          continue;
-        }
-        
-        // Skip lines that look like chapter markers (might be mis-parsed)
-        if (line.match(/^Chương\s*\d+/i) && !line.match(/^Chương\s*\d+[:：]/i)) {
-          // This might be a chapter header in the middle, skip it
-          continue;
-        }
-        
-        // Add line to current paragraph (trim whitespace but keep tabs if intentional)
-        // Remove leading/trailing whitespace but keep structure
-        const cleanLine = line.replace(/^\s+|\s+$/g, '');
-        if (cleanLine) {
-          currentParagraph.push(cleanLine);
-        }
-      }
-    }
-    
-    // Save last chapter and paragraph
-    if (currentChapter) {
-      if (currentParagraph.length > 0) {
-        currentChapter.paragraphs.push({
-          id: uuidv4(),
-          paragraphNumber: paragraphNumber++,
-          lines: currentParagraph,
-          text: currentParagraph.join('\n')
+          chapterTitle: chapterTitle,
+          rawLine: line
         });
-        currentChapter.totalLines += currentParagraph.length;
       }
-      
-      currentChapter.totalParagraphs = currentChapter.paragraphs.length;
-      chapters.push(currentChapter);
     }
     
-    // If no chapters found, treat entire content as one chapter
-    if (chapters.length === 0) {
+    // Step 2: Extract text between chapter markers (ensures NO TEXT IS LOST)
+    // Bước 2: Trích xuất text giữa các chapter marker (đảm bảo KHÔNG MẤT TEXT)
+    
+    if (chapterMarkers.length === 0) {
+      // No chapter markers found - treat entire content as one chapter
+      // Không tìm thấy chapter marker - xử lý toàn bộ nội dung như một chapter
       const paragraphs = this.parseParagraphs(content);
-      chapters.push({
+      return [{
         id: uuidv4(),
         chapterNumber: 1,
         title: 'Chapter 1',
         paragraphs: paragraphs,
         totalParagraphs: paragraphs.length,
         totalLines: paragraphs.reduce((sum, p) => sum + p.lines.length, 0)
+      }];
+    }
+    
+    // Process each chapter section
+    // Xử lý từng phần chapter
+    for (let i = 0; i < chapterMarkers.length; i++) {
+      const marker = chapterMarkers[i];
+      const startLineIndex = marker.lineIndex;
+      const endLineIndex = (i < chapterMarkers.length - 1) 
+        ? chapterMarkers[i + 1].lineIndex 
+        : lines.length; // Last chapter goes to end of file
+      
+      // Extract lines for this chapter (by index - ensures no text is lost)
+      // Trích xuất các dòng cho chapter này (theo index - đảm bảo không mất text)
+      const chapterLines = lines.slice(startLineIndex + 1, endLineIndex); // +1 to skip chapter header line
+      
+      // Parse paragraphs from chapter lines
+      // Parse paragraphs từ các dòng chapter
+      const paragraphs = [];
+      let currentParagraph = [];
+      let paragraphNumber = 1; // 1-based indexing
+      
+      for (const line of chapterLines) {
+        const trimmed = line.trim();
+        
+        if (!trimmed) {
+          // Empty line = paragraph break
+          if (currentParagraph.length > 0) {
+            paragraphs.push({
+              id: uuidv4(),
+              paragraphNumber: paragraphNumber++,
+              lines: currentParagraph,
+              text: currentParagraph.join('\n')
+            });
+            currentParagraph = [];
+          }
+        } else {
+          // Skip lines that look like chapter markers (might be false positives in content)
+          // Bỏ qua các dòng trông giống chapter marker (có thể là false positive trong nội dung)
+          if (trimmed.match(/^Chương\s*\d+/i) && !trimmed.match(/^Chương\s*\d+[:：]/i)) {
+            // Might be a chapter reference in text, include it as content
+            // Có thể là tham chiếu chapter trong text, bao gồm nó như nội dung
+            currentParagraph.push(trimmed);
+          } else {
+            currentParagraph.push(trimmed);
+          }
+        }
+      }
+      
+      // Add last paragraph if exists
+      // Thêm paragraph cuối nếu tồn tại
+      if (currentParagraph.length > 0) {
+        paragraphs.push({
+          id: uuidv4(),
+          paragraphNumber: paragraphNumber++,
+          lines: currentParagraph,
+          text: currentParagraph.join('\n')
+        });
+      }
+      
+      // Create chapter object
+      // Tạo object chapter
+      const chapter = {
+        id: uuidv4(),
+        chapterNumber: marker.chapterNumber,
+        title: marker.chapterTitle,
+        paragraphs: paragraphs,
+        totalParagraphs: paragraphs.length,
+        totalLines: paragraphs.reduce((sum, p) => sum + p.lines.length, 0)
+      };
+      
+      chapters.push(chapter);
+    }
+    
+    // Step 3: Handle text before first chapter marker (if any)
+    // Bước 3: Xử lý text trước chapter marker đầu tiên (nếu có)
+    if (chapterMarkers.length > 0 && chapterMarkers[0].lineIndex > 0) {
+      // There's text before the first chapter - add it to first chapter or create chapter 0
+      // Có text trước chapter đầu tiên - thêm vào chapter đầu hoặc tạo chapter 0
+      const preChapterLines = lines.slice(0, chapterMarkers[0].lineIndex);
+      const preChapterText = preChapterLines.join('\n').trim();
+      
+      if (preChapterText.length > 0) {
+        // Add to first chapter as initial paragraphs
+        // Thêm vào chapter đầu như các paragraph ban đầu
+        const preParagraphs = this.parseParagraphs(preChapterText);
+        if (preParagraphs.length > 0) {
+          // Prepend to first chapter
+          // Thêm vào đầu chapter đầu tiên
+          const firstChapter = chapters[0];
+          // Renumber paragraphs
+          // Đánh số lại paragraphs
+          const offset = preParagraphs.length;
+          preParagraphs.forEach((p, idx) => {
+            p.paragraphNumber = idx + 1;
+          });
+          firstChapter.paragraphs.forEach((p, idx) => {
+            p.paragraphNumber = offset + idx + 1;
+          });
+          firstChapter.paragraphs = [...preParagraphs, ...firstChapter.paragraphs];
+          firstChapter.totalParagraphs = firstChapter.paragraphs.length;
+          firstChapter.totalLines = firstChapter.paragraphs.reduce((sum, p) => sum + p.lines.length, 0);
+        }
+      }
+    }
+    
+    // Step 4: Detect and handle missing chapters (gaps in chapter numbers)
+    // Bước 4: Phát hiện và xử lý chapters bị thiếu (khoảng trống trong số chapter)
+    // Sort chapters by chapter number to detect gaps
+    // Sắp xếp chapters theo số chapter để phát hiện khoảng trống
+    chapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
+    
+    // Detect gaps in chapter numbers
+    // Phát hiện khoảng trống trong số chapter
+    const missingChapters = [];
+    for (let i = 0; i < chapters.length - 1; i++) {
+      const currentNum = chapters[i].chapterNumber;
+      const nextNum = chapters[i + 1].chapterNumber;
+      if (nextNum - currentNum > 1) {
+        // Gap detected: chapters between currentNum and nextNum are missing
+        // Phát hiện khoảng trống: các chapters giữa currentNum và nextNum bị thiếu
+        for (let missingNum = currentNum + 1; missingNum < nextNum; missingNum++) {
+          missingChapters.push({
+            missingNumber: missingNum,
+            beforeChapter: chapters[i],
+            afterChapter: chapters[i + 1]
+          });
+        }
+      }
+    }
+    
+    if (missingChapters.length > 0) {
+      console.warn(`[NovelParser] ⚠️ Missing chapters detected: ${missingChapters.length} gaps`);
+      console.warn(`[NovelParser] ⚠️ Phát hiện chapters bị thiếu: ${missingChapters.length} khoảng trống`);
+      missingChapters.forEach(({ missingNumber, beforeChapter, afterChapter }) => {
+        console.warn(`  Missing chapter ${missingNumber} (between ${beforeChapter.chapterNumber} and ${afterChapter.chapterNumber})`);
+        console.warn(`  Chapter bị thiếu ${missingNumber} (giữa ${beforeChapter.chapterNumber} và ${afterChapter.chapterNumber})`);
       });
+      
+      // Strategy: Merge missing chapter text into the previous chapter
+      // Chiến lược: Merge text của chapter bị thiếu vào chapter trước đó
+      // This ensures no text is lost, even if chapter detection missed some markers
+      // Điều này đảm bảo không mất text, ngay cả khi phát hiện chapter bỏ sót một số marker
+      console.log(`[NovelParser] ℹ️ Missing chapters will be merged into previous chapters`);
+      console.log(`[NovelParser] ℹ️ Các chapters bị thiếu sẽ được merge vào chapters trước đó`);
+      console.log(`[NovelParser] ℹ️ Note: This is expected if chapter markers were missed during parsing`);
+      console.log(`[NovelParser] ℹ️ Lưu ý: Điều này là bình thường nếu chapter markers bị bỏ sót khi parse`);
+    }
+    
+    // Step 5: Validation - Ensure no text is lost
+    // Bước 5: Xác thực - Đảm bảo không mất text
+    const totalLinesInChapters = chapters.reduce((sum, ch) => sum + ch.totalLines, 0);
+    const totalLinesInFile = lines.filter(l => l.trim().length > 0).length;
+    const chapterMarkerLines = chapterMarkers.length;
+    const expectedContentLines = totalLinesInFile - chapterMarkerLines; // Exclude chapter header lines
+    
+    // Allow some tolerance for empty lines and chapter headers
+    // Cho phép một số dung sai cho dòng trống và tiêu đề chapter
+    const tolerance = Math.max(10, Math.floor(expectedContentLines * 0.05)); // 5% tolerance or 10 lines, whichever is larger
+    
+    if (totalLinesInChapters < expectedContentLines - tolerance) {
+      console.warn(`[NovelParser] ⚠️ Potential text loss detected!`);
+      console.warn(`[NovelParser] ⚠️ Phát hiện có thể mất text!`);
+      console.warn(`  Expected content lines: ${expectedContentLines}`);
+      console.warn(`  Lines in chapters: ${totalLinesInChapters}`);
+      console.warn(`  Difference: ${expectedContentLines - totalLinesInChapters}`);
+      console.warn(`  Chapter markers found: ${chapterMarkerLines}`);
+      console.warn(`  Chapters created: ${chapters.length}`);
+      console.warn(`  Missing chapters detected: ${missingChapters.length}`);
+      
+      // If we have missing chapters, the text might be in those gaps
+      // Nếu có chapters bị thiếu, text có thể nằm trong các khoảng trống đó
+      if (missingChapters.length > 0) {
+        console.warn(`  ⚠️ Text may be in missing chapter gaps - check file for missed chapter markers`);
+        console.warn(`  ⚠️ Text có thể nằm trong khoảng trống chapters bị thiếu - kiểm tra file để tìm chapter markers bị bỏ sót`);
+      }
+    } else {
+      console.log(`[NovelParser] ✅ Text validation passed`);
+      console.log(`[NovelParser] ✅ Xác thực text đã qua`);
+      console.log(`  Total lines in file: ${totalLinesInFile}`);
+      console.log(`  Chapter markers: ${chapterMarkerLines}`);
+      console.log(`  Content lines in chapters: ${totalLinesInChapters}`);
+      console.log(`  Chapters created: ${chapters.length}`);
+      if (missingChapters.length > 0) {
+        console.log(`  Missing chapters: ${missingChapters.length} (text merged into previous chapters)`);
+        console.log(`  Chapters bị thiếu: ${missingChapters.length} (text đã được merge vào chapters trước đó)`);
+      }
     }
     
     return chapters;

@@ -34,7 +34,7 @@ export class RoleDetectionService {
     const {
       chapterContext = '',
       returnVoiceIds = true,
-      maxBatchSize = 100  // Process max 100 paragraphs per batch to avoid truncation
+      maxBatchSize = 50  // Process max 50 paragraphs per batch to avoid truncation (reduced from 100)
     } = options;
 
     if (!paragraphs || paragraphs.length === 0) {
@@ -138,10 +138,10 @@ export class RoleDetectionService {
       // Calculate maxTokens based on number of paragraphs
       // Each paragraph output is ~30-40 tokens (e.g., "1": "narrator",) including quotes and structure
       // Plus prompt overhead, safety margin
-      // Estimate: ~50 tokens per paragraph + 2000 buffer for JSON structure and prompt
-      // Increased buffer to prevent truncation
-      const estimatedResponseTokens = paragraphs.length * 50 + 2000; // More conservative estimate with larger buffer
-      const maxTokens = Math.min(8192, Math.max(4000, estimatedResponseTokens)); // Min 4000, Max 8192 (Ollama's typical limit)
+      // Estimate: ~50 tokens per paragraph + 3000 buffer for JSON structure and prompt
+      // More conservative estimate to prevent truncation
+      const estimatedResponseTokens = paragraphs.length * 60 + 3000; // Increased per-paragraph estimate and buffer
+      const maxTokens = Math.min(16384, Math.max(4000, estimatedResponseTokens)); // Min 4000, Max 16384 (increased limit)
       
       // Add retry logic for incomplete JSON responses
       const maxRetries = 3;
@@ -152,7 +152,7 @@ export class RoleDetectionService {
           const response = await this.ollama.generateJSON(prompt, {
             model: this.model,
             temperature: 0.1, // Low temperature for consistent classification
-            maxTokens: attempt === maxRetries ? Math.min(8192, maxTokens * 1.5) : maxTokens // Increase tokens on last retry
+            maxTokens: attempt === maxRetries ? Math.min(16384, maxTokens * 1.5) : maxTokens // Increase tokens on last retry (up to 16384)
           });
 
           // Parse response

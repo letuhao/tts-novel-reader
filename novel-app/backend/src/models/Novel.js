@@ -29,11 +29,17 @@ export class NovelModel {
           };
         }));
         
+        // CRITICAL: Use actual chapters count, not database field
+        // QUAN TRỌNG: Sử dụng số đếm chapters thực tế, không phải trường database
+        const actualChaptersCount = chaptersWithParagraphs.length;
+        
         return {
           ...novel,
           metadata: JSON.parse(novel.metadata || '{}'),
           chapters: chaptersWithParagraphs,
-          totalChapters: chaptersWithParagraphs.length || novel.total_chapters || 0,
+          // Always use actual chapters count to ensure accuracy
+          // Luôn sử dụng số đếm chapters thực tế để đảm bảo chính xác
+          totalChapters: actualChaptersCount,
           totalParagraphs: novel.total_paragraphs || 0
         };
       }));
@@ -66,11 +72,44 @@ export class NovelModel {
         };
       }));
       
+      // CRITICAL: Use actual chapters count, not database field
+      // QUAN TRỌNG: Sử dụng số đếm chapters thực tế, không phải trường database
+      const actualChaptersCount = chaptersWithParagraphs.length;
+      
+      // Validate and auto-fix: Update database if totalChapters doesn't match actual
+      // Xác thực và tự động sửa: Cập nhật database nếu totalChapters không khớp với thực tế
+      if (novel.total_chapters && novel.total_chapters !== actualChaptersCount) {
+        console.warn(`[NovelModel] ⚠️ Chapter count mismatch for novel ${id}`);
+        console.warn(`[NovelModel] ⚠️ Không khớp số chapter cho novel ${id}`);
+        console.warn(`  Database total_chapters: ${novel.total_chapters}`);
+        console.warn(`  Actual chapters count: ${actualChaptersCount}`);
+        console.warn(`  Auto-fixing: Updating database total_chapters to ${actualChaptersCount}`);
+        console.warn(`  Tự động sửa: Cập nhật database total_chapters thành ${actualChaptersCount}`);
+        
+        // Auto-fix: Update database with correct count
+        // Tự động sửa: Cập nhật database với số đếm đúng
+        try {
+          const now = new Date().toISOString();
+          db.prepare(`
+            UPDATE novels 
+            SET total_chapters = ?, updated_at = ?
+            WHERE id = ?
+          `).run(actualChaptersCount, now, id);
+          console.log(`[NovelModel] ✅ Fixed total_chapters for novel ${id}`);
+          console.log(`[NovelModel] ✅ Đã sửa total_chapters cho novel ${id}`);
+        } catch (error) {
+          console.error(`[NovelModel] ❌ Failed to fix total_chapters:`, error);
+          console.error(`[NovelModel] ❌ Không thể sửa total_chapters:`, error);
+        }
+      }
+      
       return {
         ...novel,
         metadata: JSON.parse(novel.metadata || '{}'),
         chapters: chaptersWithParagraphs,
-        totalChapters: chaptersWithParagraphs.length || novel.total_chapters || 0,
+        // Always use actual chapters count to ensure accuracy
+        // Luôn sử dụng số đếm chapters thực tế để đảm bảo chính xác
+        totalChapters: actualChaptersCount,
         totalParagraphs: novel.total_paragraphs || 0
       };
     } catch (error) {

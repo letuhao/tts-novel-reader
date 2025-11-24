@@ -28,12 +28,42 @@ if (-not (Test-Path $logDir)) {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 }
 
-# Use venv Python if available
+# CRITICAL: Always use venv Python - never use system Python
+# QUAN TRỌNG: Luôn sử dụng Python từ venv - không bao giờ dùng Python hệ thống
 $pythonPath = Join-Path $scriptDir ".venv\Scripts\python.exe"
 if (-not (Test-Path $pythonPath)) {
-    Write-Host "⚠️  No virtual environment found! Using system Python..." -ForegroundColor Yellow
-    Write-Host "⚠️  Không tìm thấy môi trường ảo! Sử dụng Python hệ thống..." -ForegroundColor Yellow
-    $pythonPath = "python"
+    Write-Host "❌ FATAL ERROR: Virtual environment not found!" -ForegroundColor Red
+    Write-Host "❌ LỖI NGHIÊM TRỌNG: Không tìm thấy môi trường ảo!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "   Expected path: $pythonPath" -ForegroundColor Yellow
+    Write-Host "   Đường dẫn mong đợi: $pythonPath" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "   Please run setup first:" -ForegroundColor Cyan
+    Write-Host "   Vui lòng chạy setup trước:" -ForegroundColor Cyan
+    Write-Host "     .\setup.ps1" -ForegroundColor White
+    Write-Host "   or / hoặc:" -ForegroundColor Cyan
+    Write-Host "     python -m venv .venv" -ForegroundColor White
+    Write-Host ""
+    exit 1
+}
+
+# Validate venv Python version
+# Xác thực phiên bản Python của venv
+try {
+    $versionOutput = & $pythonPath --version 2>&1
+    Write-Host "✅ Using venv Python: $versionOutput" -ForegroundColor Green
+    Write-Host "✅ Đang sử dụng Python venv: $versionOutput" -ForegroundColor Green
+    
+    # Check if it's Python 3.10.x (recommended for this backend)
+    if ($versionOutput -notmatch "3\.(10|11)") {
+        Write-Host "⚠️  WARNING: This backend was tested with Python 3.10.x" -ForegroundColor Yellow
+        Write-Host "⚠️  CẢNH BÁO: Backend này đã được kiểm tra với Python 3.10.x" -ForegroundColor Yellow
+        Write-Host "   Current version: $versionOutput" -ForegroundColor Yellow
+        Write-Host "   Phiên bản hiện tại: $versionOutput" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "⚠️  Could not verify Python version: $_" -ForegroundColor Yellow
+    Write-Host "⚠️  Không thể xác minh phiên bản Python: $_" -ForegroundColor Yellow
 }
 
 # Start process in background with logs redirected

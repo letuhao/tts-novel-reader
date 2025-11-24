@@ -38,12 +38,49 @@ os.environ["TTS_LOG_LEVEL"] = "warning"
 log_dir = script_dir / "logs"
 log_dir.mkdir(exist_ok=True)
 
-# Get Python path from venv
+# CRITICAL: Always use venv Python - never use system Python
+# QUAN TRỌNG: Luôn sử dụng Python từ venv - không bao giờ dùng Python hệ thống
 python_path = script_dir / ".venv" / "Scripts" / "python.exe"
 if not python_path.exists():
-    print("⚠️  No virtual environment found! Using system Python...")
-    print("⚠️  Không tìm thấy môi trường ảo! Sử dụng Python hệ thống...")
-    python_path = Path(sys.executable)
+    print("❌ FATAL ERROR: Virtual environment not found!")
+    print("❌ LỖI NGHIÊM TRỌNG: Không tìm thấy môi trường ảo!")
+    print("")
+    print(f"   Expected path: {python_path}")
+    print(f"   Đường dẫn mong đợi: {python_path}")
+    print("")
+    print("   Please run setup first:")
+    print("   Vui lòng chạy setup trước:")
+    print("     .\\setup.ps1")
+    print("   or / hoặc:")
+    print("     python -m venv .venv")
+    print("")
+    sys.exit(1)
+
+# Validate venv Python version (should be 3.10.x for compatibility)
+# Xác thực phiên bản Python của venv (nên là 3.10.x để tương thích)
+try:
+    result = subprocess.run(
+        [str(python_path), "--version"],
+        capture_output=True,
+        text=True,
+        timeout=5
+    )
+    if result.returncode == 0:
+        version_str = result.stdout.strip()
+        print(f"✅ Using venv Python: {version_str}")
+        print(f"✅ Đang sử dụng Python venv: {version_str}")
+        # Check if it's Python 3.10.x (recommended for this backend)
+        if "3.10" not in version_str and "3.11" not in version_str:
+            print("⚠️  WARNING: This backend was tested with Python 3.10.x")
+            print("⚠️  CẢNH BÁO: Backend này đã được kiểm tra với Python 3.10.x")
+            print(f"   Current version: {version_str}")
+            print(f"   Phiên bản hiện tại: {version_str}")
+    else:
+        print("⚠️  Could not verify Python version")
+        print("⚠️  Không thể xác minh phiên bản Python")
+except Exception as e:
+    print(f"⚠️  Could not verify Python version: {e}")
+    print(f"⚠️  Không thể xác minh phiên bản Python: {e}")
 
 print("Starting DangVanSam VietTTS Backend in background...")
 print("Đang khởi động DangVanSam VietTTS Backend ở chế độ nền...")

@@ -9,8 +9,49 @@ import sys
 import os
 from pathlib import Path
 
+# CRITICAL: Validate Python environment before proceeding
+# QUAN TRỌNG: Xác thực môi trường Python trước khi tiếp tục
+script_dir = Path(__file__).parent
+expected_venv_python = script_dir / ".venv" / "Scripts" / "python.exe"
+
+# Check if running with correct venv Python
+# Kiểm tra xem có đang chạy với Python venv đúng không
+if expected_venv_python.exists():
+    expected_python = str(expected_venv_python).lower()
+    current_python = sys.executable.lower()
+    
+    if expected_python != current_python:
+        print("=" * 70)
+        print("❌ FATAL ERROR: Wrong Python environment detected!")
+        print("❌ LỖI NGHIÊM TRỌNG: Phát hiện môi trường Python sai!")
+        print("=" * 70)
+        print()
+        print(f"Expected Python: {expected_venv_python}")
+        print(f"Python mong đợi: {expected_venv_python}")
+        print(f"Current Python:  {sys.executable}")
+        print(f"Python hiện tại:  {sys.executable}")
+        print()
+        print("This backend requires Python 3.10.11 from its own .venv.")
+        print("Backend này yêu cầu Python 3.10.11 từ .venv riêng của nó.")
+        print()
+        print("SOLUTION / GIẢI PHÁP:")
+        print("  DO NOT run 'python main.py' directly!")
+        print("  KHÔNG chạy 'python main.py' trực tiếp!")
+        print()
+        print("  Instead, use the start scripts:")
+        print("  Thay vào đó, sử dụng script khởi động:")
+        print("    .\\start_backend.ps1")
+        print("    or / hoặc:")
+        print("    python start_backend.py")
+        print()
+        print("  The start scripts will automatically use the correct Python.")
+        print("  Script khởi động sẽ tự động sử dụng Python đúng.")
+        print()
+        print("=" * 70)
+        sys.exit(1)
+
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(script_dir))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

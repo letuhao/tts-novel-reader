@@ -160,15 +160,71 @@ router.get('/:id/chapters', async (req, res, next) => {
       });
     }
     
+    // CRITICAL: Use actual chapters array length, not totalChapters field
+    // QUAN TRỌNG: Sử dụng độ dài mảng chapters thực tế, không phải trường totalChapters
+    const actualChapters = novel.chapters || [];
+    const actualTotalChapters = actualChapters.length;
+    
+    // Validate: Log warning if totalChapters doesn't match actual chapters
+    // Xác thực: Log cảnh báo nếu totalChapters không khớp với chapters thực tế
+    if (novel.totalChapters !== actualTotalChapters) {
+      console.warn(`[Novels Route] ⚠️ Chapter count mismatch for novel ${req.params.id}`);
+      console.warn(`[Novels Route] ⚠️ Không khớp số chapter cho novel ${req.params.id}`);
+      console.warn(`  Database totalChapters: ${novel.totalChapters}`);
+      console.warn(`  Actual chapters count: ${actualTotalChapters}`);
+      console.warn(`  Using actual count: ${actualTotalChapters}`);
+    }
+    
+    // CRITICAL: Sort chapters by chapter number to support non-sequential numbers
+    // QUAN TRỌNG: Sắp xếp chapters theo số chapter để hỗ trợ số không liên tục
+    const sortedChapters = [...actualChapters].sort((a, b) => a.chapterNumber - b.chapterNumber);
+    
+    // Detect gaps in chapter numbers for logging
+    // Phát hiện khoảng trống trong số chapter để log
+    const chapterNumbers = sortedChapters.map(ch => ch.chapterNumber);
+    const gaps = [];
+    for (let i = 0; i < chapterNumbers.length - 1; i++) {
+      if (chapterNumbers[i + 1] - chapterNumbers[i] > 1) {
+        gaps.push({
+          from: chapterNumbers[i],
+          to: chapterNumbers[i + 1],
+          missing: chapterNumbers[i + 1] - chapterNumbers[i] - 1
+        });
+      }
+    }
+    
+    if (gaps.length > 0) {
+      console.log(`[Novels Route] ℹ️ Non-sequential chapters detected: ${gaps.length} gaps`);
+      console.log(`[Novels Route] ℹ️ Phát hiện chapters không liên tục: ${gaps.length} khoảng trống`);
+      console.log(`  Chapter range: ${chapterNumbers[0]} to ${chapterNumbers[chapterNumbers.length - 1]}`);
+      console.log(`  Total chapters: ${actualTotalChapters}`);
+      if (gaps.length <= 5) {
+        gaps.forEach(gap => {
+          console.log(`  Gap: chapters ${gap.from + 1} to ${gap.to - 1} missing (${gap.missing} chapters)`);
+        });
+      } else {
+        console.log(`  Sample gaps: ${gaps.slice(0, 3).map(g => `${g.from + 1}-${g.to - 1}`).join(', ')}...`);
+      }
+    }
+    
     res.json({
       success: true,
-      chapters: novel.chapters.map(ch => ({
+      chapters: sortedChapters.map(ch => ({
         id: ch.id,
         chapterNumber: ch.chapterNumber,
         title: ch.title,
         totalParagraphs: ch.totalParagraphs,
         totalLines: ch.totalLines
-      }))
+      })),
+      // Return actual count, not database field
+      // Trả về số đếm thực tế, không phải trường database
+      totalChapters: actualTotalChapters,
+      // Return chapter number range for frontend reference
+      // Trả về phạm vi số chapter để frontend tham khảo
+      chapterRange: chapterNumbers.length > 0 ? {
+        min: chapterNumbers[0],
+        max: chapterNumbers[chapterNumbers.length - 1]
+      } : null
     });
   } catch (error) {
     next(error);
