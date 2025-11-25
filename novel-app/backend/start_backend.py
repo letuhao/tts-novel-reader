@@ -6,8 +6,22 @@ import subprocess
 import sys
 import os
 import time
-import requests
 from pathlib import Path
+
+# Try to import requests, install if missing
+try:
+    import requests
+except ImportError:
+    print("⚠️  requests not found. Installing...")
+    print("⚠️  Không tìm thấy requests. Đang cài đặt...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests>=2.28.0"])
+    import requests
+
+# Try to import psutil (optional, only for checking existing process)
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 SCRIPT_DIR = Path(__file__).parent
 LOGS_DIR = SCRIPT_DIR / "logs"
@@ -33,8 +47,7 @@ def start_backend():
             with open(PID_FILE, "r") as f:
                 pid = int(f.read().strip())
             
-            import psutil
-            if psutil.pid_exists(pid):
+            if psutil and psutil.pid_exists(pid):
                 try:
                     process = psutil.Process(pid)
                     if "node" in process.name().lower():

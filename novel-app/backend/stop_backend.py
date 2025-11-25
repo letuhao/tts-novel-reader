@@ -4,9 +4,19 @@ Dừng Novel Reader Backend
 """
 import os
 import signal
-import psutil
 import socket
+import sys
 from pathlib import Path
+
+# Try to import psutil, install if missing
+try:
+    import psutil
+except ImportError:
+    print("⚠️  psutil not found. Installing...")
+    print("⚠️  Không tìm thấy psutil. Đang cài đặt...")
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "psutil>=5.9.0"])
+    import psutil
 
 SCRIPT_DIR = Path(__file__).parent
 LOGS_DIR = SCRIPT_DIR / "logs"

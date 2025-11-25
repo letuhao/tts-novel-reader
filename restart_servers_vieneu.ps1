@@ -68,6 +68,21 @@ Write-Host "Starting Novel Backend with VieNeu-TTS model..." -ForegroundColor Cy
 Write-Host "Đang khởi động Novel Backend với model VieNeu-TTS..." -ForegroundColor Cyan
 cd ..\..\novel-app\backend
 
+# Check and install Python dependencies if needed
+# Kiểm tra và cài đặt Python dependencies nếu cần
+if (Test-Path "requirements.txt") {
+    Write-Host "   📦 Checking Python dependencies..." -ForegroundColor Cyan
+    Write-Host "   📦 Đang kiểm tra Python dependencies..." -ForegroundColor Cyan
+    python -m pip install -q -r requirements.txt
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "   ✅ Dependencies installed/verified" -ForegroundColor Green
+        Write-Host "   ✅ Dependencies đã được cài đặt/xác minh" -ForegroundColor Green
+    } else {
+        Write-Host "   ⚠️  Warning: Some dependencies may not be installed" -ForegroundColor Yellow
+        Write-Host "   ⚠️  Cảnh báo: Một số dependencies có thể chưa được cài đặt" -ForegroundColor Yellow
+    }
+}
+
 # Set environment variable for TTS model
 # Thiết lập biến môi trường cho TTS model
 $env:TTS_DEFAULT_MODEL = "vieneu-tts"

@@ -15,10 +15,29 @@ import {
  * Safely format objects for logging without dumping huge payloads
  * Định dạng dữ liệu an toàn để log mà không ghi toàn bộ payload lớn
  */
+const describeBinaryPayload = (payload) => {
+  if (Buffer.isBuffer(payload)) {
+    return `[Binary Buffer, length: ${payload.length} bytes]`;
+  }
+  if (payload instanceof ArrayBuffer) {
+    return `[Binary ArrayBuffer, length: ${payload.byteLength} bytes]`;
+  }
+  if (ArrayBuffer.isView(payload)) {
+    return `[Binary ${payload.constructor.name}, length: ${payload.byteLength} bytes]`;
+  }
+  return null;
+};
+
 const formatSafeJson = (data, maxLength = 2000) => {
   try {
     if (data === undefined) return 'undefined';
     if (data === null) return 'null';
+
+    const binaryDescription = describeBinaryPayload(data);
+    if (binaryDescription) {
+      return binaryDescription;
+    }
+
     const json = typeof data === 'string' ? data : JSON.stringify(data);
     if (json.length > maxLength) {
       return `${json.slice(0, maxLength)}... [truncated ${json.length - maxLength} chars]`;
@@ -296,12 +315,41 @@ export class TTSService {
       console.log(`[TTS Service] [generateAudio] Headers:`, Object.keys(response.headers));
       
       // Debug: Log response data (without audio if present) / Debug: Log dữ liệu phản hồi (không có audio nếu có)
+      const contentTypeHeader = response.headers['content-type'] || response.headers['Content-Type'] || '';
+      const lowerContentType = contentTypeHeader.toLowerCase();
+      const isJsonResponse = lowerContentType.includes('application/json') || lowerContentType.includes('text/json');
+
       if (response.data) {
-        const responseDataForLog = { ...response.data };
-        if (responseDataForLog.audio) {
-          responseDataForLog.audio = `[Base64 audio data, length: ${responseDataForLog.audio.length} chars]`;
+        if (isJsonResponse) {
+          const responsePayload = typeof response.data === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(response.data);
+                } catch {
+                  return response.data.slice(0, 2000) + (response.data.length > 2000 ? '... [truncated]' : '');
+                }
+              })()
+            : response.data;
+
+          if (typeof responsePayload === 'string') {
+            console.log(`[TTS Service] [generateAudio] [DEBUG] Response data (string JSON):`, responsePayload);
+          } else {
+            const responseDataForLog = { ...responsePayload };
+            if (responseDataForLog.audio) {
+              responseDataForLog.audio = `[Base64 audio data, length: ${responseDataForLog.audio.length} chars]`;
+            }
+            console.log(`[TTS Service] [generateAudio] [DEBUG] Response data:`, JSON.stringify(responseDataForLog, null, 2));
+          }
+        } else {
+          const binaryDescription = describeBinaryPayload(response.data);
+          if (binaryDescription) {
+            console.log(`[TTS Service] [generateAudio] [DEBUG] Response data: ${binaryDescription}`);
+          } else if (typeof response.data === 'string') {
+            console.log(`[TTS Service] [generateAudio] [DEBUG] Response data: [Non-JSON string, length: ${response.data.length} chars, content-type: ${lowerContentType || 'unknown'}]`);
+          } else {
+            console.log(`[TTS Service] [generateAudio] [DEBUG] Response data: [Non-JSON payload type ${typeof response.data}]`);
+          }
         }
-        console.log(`[TTS Service] [generateAudio] [DEBUG] Response data:`, JSON.stringify(responseDataForLog, null, 2));
       }
       
       // Check if paragraph was skipped (meaningless content)
@@ -361,7 +409,7 @@ export class TTSService {
       }
       
       // Return metadata from response body (object only, ignore binary payloads)
-      const metadataPayload = extractMetadataPayload(response.data);
+      const metadataPayload = isJsonResponse ? extractMetadataPayload(response.data) : null;
       const result = {
         requestId: requestId || uuidv4(),
         fileId: finalFileId,

@@ -1,0 +1,9 @@
+# Python dependencies for Novel Backend scripts
+# Các dependencies Python cho Novel Backend scripts
+
+# Process management
+psutil>=5.9.0
+
+# HTTP requests for health checks
+requests>=2.28.0
+
