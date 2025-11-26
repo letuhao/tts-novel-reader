@@ -10,12 +10,12 @@ export class ChapterModel {
    * Lấy tất cả chapters cho một novel
    */
   static async getByNovel(novelId) {
-    const db = Database.getInstance();
-    const chapters = db.prepare(`
+    const db = await Database.getInstance();
+    const chapters = await db.all(`
       SELECT * FROM chapters 
       WHERE novel_id = ? 
       ORDER BY chapter_number ASC
-    `).all(novelId);
+    `, novelId);
     
     // Convert snake_case database columns to camelCase
     // Chuyển đổi các cột database snake_case sang camelCase
@@ -53,8 +53,8 @@ export class ChapterModel {
    * Lấy chapter theo ID
    */
   static async getById(id) {
-    const db = Database.getInstance();
-    const chapter = db.prepare('SELECT * FROM chapters WHERE id = ?').get(id);
+    const db = await Database.getInstance();
+    const chapter = await db.get('SELECT * FROM chapters WHERE id = ?', id);
     
     if (!chapter) return null;
     
@@ -79,11 +79,11 @@ export class ChapterModel {
    * Lấy chapter theo novel và số chapter
    */
   static async getByNovelAndNumber(novelId, chapterNumber) {
-    const db = Database.getInstance();
-    const chapter = db.prepare(`
+    const db = await Database.getInstance();
+    const chapter = await db.get(`
       SELECT * FROM chapters 
       WHERE novel_id = ? AND chapter_number = ?
-    `).get(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
     if (!chapter) return null;
     
@@ -108,15 +108,15 @@ export class ChapterModel {
    * Tạo chapter
    */
   static async create(chapterData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
-    db.prepare(`
+    await db.run(`
       INSERT INTO chapters (
         id, novel_id, chapter_number, title, content,
         total_paragraphs, total_lines, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       chapterData.id,
       chapterData.novelId,
       chapterData.chapterNumber,
@@ -136,7 +136,7 @@ export class ChapterModel {
    * Cập nhật chapter
    */
   static async update(id, updates) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     const updatesList = [];
@@ -163,11 +163,11 @@ export class ChapterModel {
     values.push(now);
     values.push(id);
     
-    db.prepare(`
+    await db.run(`
       UPDATE chapters 
       SET ${updatesList.join(', ')}
       WHERE id = ?
-    `).run(...values);
+    `, values);
     
     return await this.getById(id);
   }
@@ -177,9 +177,10 @@ export class ChapterModel {
    * Xóa chapter
    */
   static async delete(id) {
-    const db = Database.getInstance();
-    const result = db.prepare('DELETE FROM chapters WHERE id = ?').run(id);
-    return result.changes > 0;
+    const db = await Database.getInstance();
+    const result = await db.run('DELETE FROM chapters WHERE id = ?', id);
+    const changes = result?.changes ?? result?.rowCount ?? 0;
+    return changes > 0;
   }
   
   /**
@@ -187,9 +188,9 @@ export class ChapterModel {
    * Xóa tất cả chapters cho một novel
    */
   static async deleteByNovel(novelId) {
-    const db = Database.getInstance();
-    const result = db.prepare('DELETE FROM chapters WHERE novel_id = ?').run(novelId);
-    return result.changes;
+    const db = await Database.getInstance();
+    const result = await db.run('DELETE FROM chapters WHERE novel_id = ?', novelId);
+    return result?.changes ?? result?.rowCount ?? 0;
   }
 }
 

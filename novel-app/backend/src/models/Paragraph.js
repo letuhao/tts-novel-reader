@@ -10,12 +10,12 @@ export class ParagraphModel {
    * Lấy tất cả paragraphs cho một chapter
    */
   static async getByChapter(chapterId) {
-    const db = Database.getInstance();
-    const paragraphs = db.prepare(`
+    const db = await Database.getInstance();
+    const paragraphs = await db.all(`
       SELECT * FROM paragraphs 
       WHERE chapter_id = ? 
       ORDER BY paragraph_number ASC
-    `).all(chapterId);
+    `, chapterId);
     
     // Convert snake_case database columns to camelCase
     return paragraphs.map(paragraph => ({
@@ -38,12 +38,12 @@ export class ParagraphModel {
    * Lấy paragraphs theo novel và số chapter
    */
   static async getByNovelAndChapter(novelId, chapterNumber) {
-    const db = Database.getInstance();
-    const paragraphs = db.prepare(`
+    const db = await Database.getInstance();
+    const paragraphs = await db.all(`
       SELECT * FROM paragraphs 
       WHERE novel_id = ? AND chapter_number = ? 
       ORDER BY paragraph_number ASC
-    `).all(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
     // Convert snake_case database columns to camelCase
     return paragraphs.map(paragraph => ({
@@ -66,8 +66,8 @@ export class ParagraphModel {
    * Lấy paragraph theo ID
    */
   static async getById(id) {
-    const db = Database.getInstance();
-    const paragraph = db.prepare('SELECT * FROM paragraphs WHERE id = ?').get(id);
+    const db = await Database.getInstance();
+    const paragraph = await db.get('SELECT * FROM paragraphs WHERE id = ?', id);
     
     if (!paragraph) return null;
     
@@ -92,11 +92,11 @@ export class ParagraphModel {
    * Lấy paragraph theo novel, số chapter, và số paragraph
    */
   static async getByNumbers(novelId, chapterNumber, paragraphNumber) {
-    const db = Database.getInstance();
-    const paragraph = db.prepare(`
+    const db = await Database.getInstance();
+    const paragraph = await db.get(`
       SELECT * FROM paragraphs 
       WHERE novel_id = ? AND chapter_number = ? AND paragraph_number = ?
-    `).get(novelId, chapterNumber, paragraphNumber);
+    `, novelId, chapterNumber, paragraphNumber);
     
     if (!paragraph) return null;
     
@@ -121,15 +121,15 @@ export class ParagraphModel {
    * Tạo paragraph
    */
   static async create(paragraphData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
-    db.prepare(`
+    await db.run(`
       INSERT INTO paragraphs (
         id, novel_id, chapter_id, chapter_number, paragraph_number,
         text, lines, role, voice_id, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       paragraphData.id,
       paragraphData.novelId,
       paragraphData.chapterId,
@@ -151,39 +151,31 @@ export class ParagraphModel {
    * Tạo nhiều paragraphs trong batch
    */
   static async createBatch(paragraphsData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
-    // Get SQLite instance directly
-    const sqlite = db.db;  // db.db is the sqlite instance
-    
-    const insert = sqlite.prepare(`
-      INSERT INTO paragraphs (
-        id, novel_id, chapter_id, chapter_number, paragraph_number,
-        text, lines, role, voice_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    // Use SQLite transaction
-    const insertMany = sqlite.transaction((paragraphs) => {
-      for (const paragraph of paragraphs) {
-        insert.run(
-          paragraph.id,
-          paragraph.novelId,
-          paragraph.chapterId,
-          paragraph.chapterNumber,
-          paragraph.paragraphNumber,
-          paragraph.text,
-          paragraph.lines ? JSON.stringify(paragraph.lines) : null,
-          paragraph.role || null,
-          paragraph.voiceId || null,
-          now,
-          now
+    await db.transaction(async (tx) => {
+      for (const paragraph of paragraphsData) {
+        await tx.run(`
+          INSERT INTO paragraphs (
+            id, novel_id, chapter_id, chapter_number, paragraph_number,
+            text, lines, role, voice_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        paragraph.id,
+        paragraph.novelId,
+        paragraph.chapterId,
+        paragraph.chapterNumber,
+        paragraph.paragraphNumber,
+        paragraph.text,
+        paragraph.lines ? JSON.stringify(paragraph.lines) : null,
+        paragraph.role || null,
+        paragraph.voiceId || null,
+        now,
+        now
         );
       }
     });
-    
-    insertMany(paragraphsData);
     
     return paragraphsData.length;
   }
@@ -193,7 +185,7 @@ export class ParagraphModel {
    * Cập nhật paragraph
    */
   static async update(id, updates) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     const updatesList = [];
@@ -220,11 +212,11 @@ export class ParagraphModel {
     values.push(now);
     values.push(id);
     
-    db.prepare(`
+    await db.run(`
       UPDATE paragraphs 
       SET ${updatesList.join(', ')}
       WHERE id = ?
-    `).run(...values);
+    `, values);
     
     return await this.getById(id);
   }
@@ -234,9 +226,10 @@ export class ParagraphModel {
    * Xóa paragraph
    */
   static async delete(id) {
-    const db = Database.getInstance();
-    const result = db.prepare('DELETE FROM paragraphs WHERE id = ?').run(id);
-    return result.changes > 0;
+    const db = await Database.getInstance();
+    const result = await db.run('DELETE FROM paragraphs WHERE id = ?', id);
+    const changes = result?.changes ?? result?.rowCount ?? 0;
+    return changes > 0;
   }
   
   /**
@@ -244,9 +237,9 @@ export class ParagraphModel {
    * Xóa tất cả paragraphs cho một chapter
    */
   static async deleteByChapter(chapterId) {
-    const db = Database.getInstance();
-    const result = db.prepare('DELETE FROM paragraphs WHERE chapter_id = ?').run(chapterId);
-    return result.changes;
+    const db = await Database.getInstance();
+    const result = await db.run('DELETE FROM paragraphs WHERE chapter_id = ?', chapterId);
+    return result?.changes ?? result?.rowCount ?? 0;
   }
 }
 

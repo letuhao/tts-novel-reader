@@ -10,13 +10,13 @@ export class ProgressModel {
    * Lấy progress theo novel ID
    */
   static async getByNovel(novelId) {
-    const db = Database.getInstance();
-    const progress = db.prepare(`
+    const db = await Database.getInstance();
+    const progress = await db.get(`
       SELECT * FROM progress 
       WHERE novel_id = ?
       ORDER BY last_read_at DESC
       LIMIT 1
-    `).get(novelId);
+    `, novelId);
     
     return progress || null;
   }
@@ -26,16 +26,16 @@ export class ProgressModel {
    * Tạo progress
    */
   static async create(progressData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
-    db.prepare(`
+    await db.run(`
       INSERT INTO progress (
         id, novel_id, chapter_id, chapter_number,
         paragraph_id, paragraph_number,
         position, completed, last_read_at, reading_time_seconds
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       progressData.id,
       progressData.novelId,
       progressData.chapterId || null,
@@ -56,7 +56,7 @@ export class ProgressModel {
    * Cập nhật progress
    */
   static async update(id, updates) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     const updatesList = [];
@@ -95,11 +95,11 @@ export class ProgressModel {
     values.push(now);
     values.push(id);
     
-    db.prepare(`
+    await db.run(`
       UPDATE progress 
       SET ${updatesList.join(', ')}
       WHERE id = ?
-    `).run(...values);
+    `, values);
     
     return await this.getById(id);
   }
@@ -108,8 +108,8 @@ export class ProgressModel {
    * Get by ID
    */
   static async getById(id) {
-    const db = Database.getInstance();
-    return db.prepare('SELECT * FROM progress WHERE id = ?').get(id);
+    const db = await Database.getInstance();
+    return await db.get('SELECT * FROM progress WHERE id = ?', id);
   }
   
   /**
@@ -117,7 +117,6 @@ export class ProgressModel {
    * Lấy thống kê đọc
    */
   static async getStats(novelId) {
-    const db = Database.getInstance();
     const progress = await this.getByNovel(novelId);
     
     if (!progress) {
@@ -134,7 +133,7 @@ export class ProgressModel {
       totalReadingTimeSeconds: progress.reading_time_seconds || 0,
       totalReadingTimeHours: (progress.reading_time_seconds || 0) / 3600,
       currentChapter: progress.chapter_number || null,
-      completed: progress.completed === 1,
+      completed: progress.completed === 1 || progress.completed === true,
       lastReadAt: progress.last_read_at
     };
   }

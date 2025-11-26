@@ -10,13 +10,13 @@ export class AudioCacheModel {
    * Lấy audio cache theo chapter
    */
   static async getByChapter(novelId, chapterId) {
-    const db = Database.getInstance();
-    const cache = db.prepare(`
+    const db = await Database.getInstance();
+    const cache = await db.get(`
       SELECT * FROM audio_cache 
       WHERE novel_id = ? AND chapter_id = ? AND paragraph_id IS NULL
       ORDER BY created_at DESC
       LIMIT 1
-    `).get(novelId, chapterId);
+    `, novelId, chapterId);
     
     return cache || null;
   }
@@ -34,7 +34,7 @@ export class AudioCacheModel {
    * @returns {Promise<Array>} Array of paragraph audio cache entries, sorted by paragraph number, with duplicates removed
    */
   static async getByChapterParagraphs(novelId, chapterId, speakerId = null) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     
     try {
       // Use a subquery with ROW_NUMBER() to get only the most recent entry per paragraph_number
@@ -64,7 +64,7 @@ export class AudioCacheModel {
         ORDER BY paragraph_number ASC
       `;
       
-      const results = db.prepare(query).all(...params);
+      const results = await db.all(query, ...params);
       
       // Remove the rn column from results (it's just for filtering)
       // Loại bỏ cột rn khỏi kết quả (nó chỉ để lọc)
@@ -92,7 +92,7 @@ export class AudioCacheModel {
       
       // Return results - JavaScript deduplication will handle duplicates
       // Trả về kết quả - JavaScript deduplication sẽ xử lý trùng lặp
-      return db.prepare(query).all(...params);
+      return await db.all(query, ...params);
     }
   }
 
@@ -107,7 +107,7 @@ export class AudioCacheModel {
    * @returns {Promise<Object|null>} Audio cache entry or null
    */
   static async getByParagraph(novelId, chapterId, paragraphId, speakerId = null) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     let query = `
       SELECT * FROM audio_cache 
       WHERE novel_id = ? AND chapter_id = ? AND paragraph_id = ?
@@ -121,7 +121,7 @@ export class AudioCacheModel {
     
     query += ` ORDER BY created_at DESC LIMIT 1`;
     
-    const cache = db.prepare(query).get(...params);
+    const cache = await db.get(query, ...params);
     return cache || null;
   }
 
@@ -136,7 +136,7 @@ export class AudioCacheModel {
    * @returns {Promise<Object|null>} Audio cache entry or null
    */
   static async getByChapterAndParagraphNumber(novelId, chapterNumber, paragraphNumber, speakerId = null) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     let query = `
       SELECT * FROM audio_cache 
       WHERE novel_id = ? AND chapter_number = ? AND paragraph_number = ?
@@ -150,7 +150,7 @@ export class AudioCacheModel {
     
     query += ` ORDER BY created_at DESC LIMIT 1`;
     
-    const cache = db.prepare(query).get(...params);
+    const cache = await db.get(query, ...params);
     return cache || null;
   }
   
@@ -159,7 +159,7 @@ export class AudioCacheModel {
    * Tạo entry cache audio
    */
   static async create(cacheData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     
     // Generate ID
     let id = cacheData.id;
@@ -173,7 +173,7 @@ export class AudioCacheModel {
     }
     const now = new Date().toISOString();
     
-    db.prepare(`
+    await db.run(`
       INSERT INTO audio_cache (
         id, novel_id, chapter_id, chapter_number,
         paragraph_id, paragraph_number,
@@ -181,7 +181,7 @@ export class AudioCacheModel {
         local_audio_path, audio_duration, audio_file_size,
         expires_at, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       id,
       cacheData.novelId,
       cacheData.chapterId || null,
@@ -205,8 +205,8 @@ export class AudioCacheModel {
    * Get by ID
    */
   static async getById(id) {
-    const db = Database.getInstance();
-    return db.prepare('SELECT * FROM audio_cache WHERE id = ?').get(id);
+    const db = await Database.getInstance();
+    return await db.get('SELECT * FROM audio_cache WHERE id = ?', id);
   }
   
   /**
@@ -214,15 +214,15 @@ export class AudioCacheModel {
    * Dọn dẹp cache entries hết hạn
    */
   static async cleanExpired() {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
-    const result = db.prepare(`
+    const result = await db.run(`
       DELETE FROM audio_cache 
       WHERE expires_at IS NOT NULL AND expires_at < ?
-    `).run(now);
+    `, now);
     
-    return result.changes;
+    return result?.changes ?? result?.rowCount ?? 0;
   }
 }
 

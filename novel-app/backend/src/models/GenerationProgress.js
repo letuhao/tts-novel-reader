@@ -11,12 +11,12 @@ export class GenerationProgressModel {
    * Lấy generation progress theo novel
    */
   static async getByNovel(novelId) {
-    const db = Database.getInstance();
-    return db.prepare(`
+    const db = await Database.getInstance();
+    return await db.all(`
       SELECT * FROM generation_progress 
       WHERE novel_id = ? 
       ORDER BY chapter_number ASC, paragraph_number ASC
-    `).all(novelId);
+    `, novelId);
   }
   
   /**
@@ -24,12 +24,12 @@ export class GenerationProgressModel {
    * Lấy generation progress theo chapter
    */
   static async getByChapter(novelId, chapterNumber) {
-    const db = Database.getInstance();
-    return db.prepare(`
+    const db = await Database.getInstance();
+    return await db.all(`
       SELECT * FROM generation_progress 
       WHERE novel_id = ? AND chapter_number = ? 
       ORDER BY paragraph_number ASC
-    `).all(novelId, chapterNumber);
+    `, novelId, chapterNumber);
   }
   
   /**
@@ -37,13 +37,13 @@ export class GenerationProgressModel {
    * Lấy generation progress theo paragraph
    */
   static async getByParagraph(novelId, chapterNumber, paragraphNumber) {
-    const db = Database.getInstance();
-    return db.prepare(`
+    const db = await Database.getInstance();
+    return await db.get(`
       SELECT * FROM generation_progress 
       WHERE novel_id = ? AND chapter_number = ? AND paragraph_number = ?
       ORDER BY created_at DESC
       LIMIT 1
-    `).get(novelId, chapterNumber, paragraphNumber);
+    `, novelId, chapterNumber, paragraphNumber);
   }
   
   /**
@@ -51,39 +51,39 @@ export class GenerationProgressModel {
    * Lấy thống kê generation cho một chapter
    */
   static async getChapterStats(novelId, chapterNumber) {
-    const db = Database.getInstance();
-    const stats = db.prepare(`
+    const db = await Database.getInstance();
+    const stats = await db.all(`
       SELECT 
         status,
         COUNT(*) as count
       FROM generation_progress
       WHERE novel_id = ? AND chapter_number = ?
       GROUP BY status
-    `).all(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
-    const total = db.prepare(`
+    const total = await db.get(`
       SELECT COUNT(*) as total
       FROM generation_progress
       WHERE novel_id = ? AND chapter_number = ?
-    `).get(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
-    const completed = db.prepare(`
+    const completed = await db.get(`
       SELECT COUNT(*) as completed
       FROM generation_progress
       WHERE novel_id = ? AND chapter_number = ? AND status = 'completed'
-    `).get(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
-    const failed = db.prepare(`
+    const failed = await db.get(`
       SELECT COUNT(*) as failed
       FROM generation_progress
       WHERE novel_id = ? AND chapter_number = ? AND status = 'failed'
-    `).get(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
-    const pending = db.prepare(`
+    const pending = await db.get(`
       SELECT COUNT(*) as pending
       FROM generation_progress
       WHERE novel_id = ? AND chapter_number = ? AND status = 'pending'
-    `).get(novelId, chapterNumber);
+    `, novelId, chapterNumber);
     
     return {
       total: total?.total || 0,
@@ -102,7 +102,7 @@ export class GenerationProgressModel {
    * Tạo hoặc cập nhật generation progress
    */
   static async createOrUpdate(progressData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     // Check if exists
@@ -129,7 +129,7 @@ export class GenerationProgressModel {
     // Create new
     const id = progressData.id || uuidv4();
     
-    db.prepare(`
+    await db.run(`
       INSERT INTO generation_progress (
         id, novel_id, chapter_id, chapter_number,
         paragraph_id, paragraph_number, status,
@@ -137,7 +137,7 @@ export class GenerationProgressModel {
         started_at, completed_at, error_message, retry_count,
         created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
       id,
       progressData.novelId,
       progressData.chapterId || null,
@@ -164,7 +164,7 @@ export class GenerationProgressModel {
    * Cập nhật generation progress
    */
   static async update(id, updates) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     const updatesList = [];
@@ -199,11 +199,11 @@ export class GenerationProgressModel {
     values.push(now);
     values.push(id);
     
-    db.prepare(`
+    await db.run(`
       UPDATE generation_progress 
       SET ${updatesList.join(', ')}
       WHERE id = ?
-    `).run(...values);
+    `, values);
     
     return await this.getById(id);
   }
@@ -213,8 +213,8 @@ export class GenerationProgressModel {
    * Lấy theo ID
    */
   static async getById(id) {
-    const db = Database.getInstance();
-    return db.prepare('SELECT * FROM generation_progress WHERE id = ?').get(id);
+    const db = await Database.getInstance();
+    return await db.get('SELECT * FROM generation_progress WHERE id = ?', id);
   }
   
   /**
@@ -246,17 +246,17 @@ export class GenerationProgressModel {
    * Dọn dẹp progress entries cũ
    */
   static async cleanOld(daysOld = 30) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
     const cutoff = cutoffDate.toISOString();
     
-    const result = db.prepare(`
+    const result = await db.run(`
       DELETE FROM generation_progress 
       WHERE status = 'completed' AND completed_at < ?
-    `).run(cutoff);
+    `, cutoff);
     
-    return result.changes;
+    return result?.changes ?? result?.rowCount ?? 0;
   }
 }
 

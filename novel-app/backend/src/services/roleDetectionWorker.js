@@ -374,10 +374,11 @@ export class RoleDetectionWorker {
       // SIMPLE LOGIC: Get chapter numbers only (lightweight query)
       // LOGIC ĐƠN GIẢN: Chỉ lấy chapter numbers (query nhẹ)
       const Database = (await import('../database/db.js')).default;
-      const db = Database.getInstance();
-      const chapterRows = db.prepare(
-        'SELECT id, chapter_number FROM chapters WHERE novel_id = ? ORDER BY chapter_number'
-      ).all(novelId);
+      const db = await Database.getInstance();
+      const chapterRows = await db.all(
+        'SELECT id, chapter_number FROM chapters WHERE novel_id = ? ORDER BY chapter_number',
+        novelId
+      );
 
       if (!chapterRows || chapterRows.length === 0) {
         throw new Error(`Novel ${novelId} has no chapters`);

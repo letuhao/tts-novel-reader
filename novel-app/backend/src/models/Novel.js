@@ -12,10 +12,10 @@ export class NovelModel {
    * Lấy tất cả novels
    */
   static async getAll() {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     
     try {
-      const novels = db.prepare('SELECT * FROM novels ORDER BY updated_at DESC').all();
+      const novels = await db.all('SELECT * FROM novels ORDER BY updated_at DESC');
       
       // Load chapters for each novel (can be optimized with JOIN if needed)
       return await Promise.all(novels.map(async (novel) => {
@@ -54,10 +54,10 @@ export class NovelModel {
    * Lấy novel theo ID
    */
   static async getById(id) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     
     try {
-      const novel = db.prepare('SELECT * FROM novels WHERE id = ?').get(id);
+      const novel = await db.get('SELECT * FROM novels WHERE id = ?', id);
       if (!novel) return null;
       
       // Load chapters from normalized table
@@ -90,11 +90,11 @@ export class NovelModel {
         // Tự động sửa: Cập nhật database với số đếm đúng
         try {
           const now = new Date().toISOString();
-          db.prepare(`
+          await db.run(`
             UPDATE novels 
             SET total_chapters = ?, updated_at = ?
             WHERE id = ?
-          `).run(actualChaptersCount, now, id);
+          `, actualChaptersCount, now, id);
           console.log(`[NovelModel] ✅ Fixed total_chapters for novel ${id}`);
           console.log(`[NovelModel] ✅ Đã sửa total_chapters cho novel ${id}`);
         } catch (error) {
@@ -123,7 +123,7 @@ export class NovelModel {
    * Tạo novel với chapters và paragraphs trong normalized tables
    */
   static async create(novelData) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     try {
@@ -136,12 +136,12 @@ export class NovelModel {
       }
       
       // Insert novel
-      db.prepare(`
+      await db.run(`
         INSERT INTO novels (
           id, title, file_path, metadata, 
           total_chapters, total_paragraphs, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
         novelData.id,
         novelData.title,
         novelData.filePath,
@@ -184,11 +184,11 @@ export class NovelModel {
       }
       
       // Update total chapters and paragraphs
-      db.prepare(`
+      await db.run(`
         UPDATE novels 
         SET total_chapters = ?, total_paragraphs = ?, updated_at = ?
         WHERE id = ?
-      `).run(
+      `,
         novelData.chapters?.length || 0,
         totalParagraphs,
         now,
@@ -208,7 +208,7 @@ export class NovelModel {
    * Cập nhật novel
    */
   static async update(id, updates) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     const now = new Date().toISOString();
     
     try {
@@ -232,21 +232,14 @@ export class NovelModel {
       values.push(now);
       values.push(id);
       
-      db.prepare(`
+      await db.run(`
         UPDATE novels 
         SET ${updatesList.join(', ')}
         WHERE id = ?
-      `).run(...values);
+      `, values);
     } catch (error) {
-      // Fallback to in-memory
-      const novel = novelsStore.get(id);
-      if (novel) {
-        novelsStore.set(id, {
-          ...novel,
-          ...updates,
-          updatedAt: now
-        });
-      }
+      console.error('[NovelModel] Error updating novel:', error);
+      throw error;
     }
     
     return await this.getById(id);
@@ -257,12 +250,13 @@ export class NovelModel {
    * Xóa novel (cascade sẽ xóa chapters và paragraphs)
    */
   static async delete(id) {
-    const db = Database.getInstance();
+    const db = await Database.getInstance();
     
     try {
       // Cascade delete will handle chapters and paragraphs
-      const result = db.prepare('DELETE FROM novels WHERE id = ?').run(id);
-      return result.changes > 0;
+      const result = await db.run('DELETE FROM novels WHERE id = ?', id);
+      const changes = result?.changes ?? result?.rowCount ?? 0;
+      return changes > 0;
     } catch (error) {
       console.error('[NovelModel] Error deleting novel:', error);
       throw error;
