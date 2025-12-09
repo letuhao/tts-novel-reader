@@ -37,7 +37,7 @@ function ChapterContent({
   return (
     <div 
       ref={containerRef}
-      className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 prose dark:prose-invert max-w-none"
+      className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 prose dark:prose-invert max-w-none pb-48"
     >
       {paragraphs.map((paragraph) => (
         <div

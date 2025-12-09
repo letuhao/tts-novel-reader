@@ -479,6 +479,11 @@ export class AudioStorageService {
       
       return result;
     } catch (error) {
+      // Preserve skip errors so worker can continue processing other paragraphs
+      if (error.isSkip || error.name === 'SkipError') {
+        throw error;
+      }
+
       console.error(`[AudioStorage] ==========================================`);
       console.error(`[AudioStorage] ❌ generateAndStore FAILED!`);
       console.error(`[AudioStorage] ❌ generateAndStore THẤT BẠI!`);

@@ -789,17 +789,27 @@ export class AudioWorker {
         
         // Process batch in parallel
         const batchPromises = batch.map(({ paragraph, index }) => processParagraph(paragraph, index));
-        const batchResults = await Promise.all(batchPromises);
+        // Use allSettled so one rejected paragraph doesn't abort the whole batch
+        const batchResults = await Promise.allSettled(batchPromises);
         
         // Collect results
         for (const result of batchResults) {
-          if (result.success) {
-            paragraphResults.push(result);
+          if (result.status === 'fulfilled') {
+            const value = result.value;
+            if (value.success) {
+              paragraphResults.push(value);
+            } else {
+              errors.push({
+                paragraphNumber: value.paragraphNumber,
+                paragraphId: value.paragraphId,
+                error: value.error
+              });
+            }
           } else {
             errors.push({
-              paragraphNumber: result.paragraphNumber,
-              paragraphId: result.paragraphId,
-              error: result.error
+              paragraphNumber: null,
+              paragraphId: null,
+              error: result.reason?.message || 'Unknown error'
             });
           }
         }

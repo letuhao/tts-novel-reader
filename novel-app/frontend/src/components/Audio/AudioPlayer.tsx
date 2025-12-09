@@ -8,9 +8,12 @@ import { Howl } from 'howler'
 import { useAudioStore } from '../../store/useAudioStore'
 import { useReaderStore } from '../../store/useReaderStore'
 import { useProgressStore } from '../../store/useProgressStore'
+import { useNovelStore } from '../../store/useNovelStore'
 import { audioQueue } from '../../services/audioQueue'
 import { logError } from '../../utils/logger'
 import { AUDIO_CONFIG } from '../../utils/constants'
+import * as chapterService from '../../services/chapters'
+import type { Chapter } from '../../types'
 
 function AudioPlayer() {
   const {
@@ -31,12 +34,15 @@ function AudioPlayer() {
     setCurrentAudio,
   } = useAudioStore()
 
-  const { novelId, chapterNumber, currentParagraphNumber, paragraphs, setCurrentParagraph } = useReaderStore()
+  const { novelId, chapterNumber, currentParagraphNumber, paragraphs, setCurrentParagraph, loadChapter } = useReaderStore()
   const { saveProgress } = useProgressStore()
+  const { currentNovel } = useNovelStore()
   
   // Local state
   const [currentHowl, setCurrentHowl] = useState<Howl | null>(null)
   const [showPlayer, setShowPlayer] = useState(false)
+  const [chapters, setChapters] = useState<Chapter[]>([])
+  const [isAdvancingChapter, setIsAdvancingChapter] = useState(false)
   
   // Queue state (read from queue, never stored locally)
   const [queueCurrentIndex, setQueueCurrentIndex] = useState<number>(-1)
@@ -46,6 +52,60 @@ function AudioPlayer() {
   // Refs
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isInitializedRef = useRef(false)
+  const wasPlayingRef = useRef(false) // Track if audio was playing when chapter ends
+
+  // Load chapters list for chapter navigation
+  useEffect(() => {
+    if (!novelId) {
+      setChapters([])
+      return
+    }
+
+    // Use chapters from novel if available, otherwise fetch from API
+    if (currentNovel?.chapters && currentNovel.chapters.length > 0) {
+      setChapters(currentNovel.chapters)
+    } else {
+      // Fetch chapters list to get accurate list
+      chapterService.getChapters(novelId)
+        .then((fetchedChapters) => {
+          setChapters(fetchedChapters)
+        })
+        .catch((error) => {
+          console.error('[AudioPlayer] Failed to fetch chapters:', error)
+          setChapters([])
+        })
+    }
+  }, [novelId, currentNovel?.chapters])
+
+  // Helper function to get next chapter number (similar to ReaderHeader logic)
+  const getNextChapterNumber = useCallback((): number | null => {
+    if (!chapterNumber || !novelId) return null
+
+    if (chapters.length === 0) {
+      // Fallback: sequential navigation if chapters not loaded
+      if (currentNovel?.totalChapters) {
+        return chapterNumber < currentNovel.totalChapters ? chapterNumber + 1 : null
+      }
+      return null
+    }
+
+    // Find next chapter in actual chapters array (supports gaps)
+    // Handle both camelCase and snake_case for backward compatibility
+    const sortedChapters = [...chapters].sort((a, b) => {
+      const aNum = a.chapterNumber || a.chapter_number || 0
+      const bNum = b.chapterNumber || b.chapter_number || 0
+      return aNum - bNum
+    })
+    const currentIndex = sortedChapters.findIndex(ch => {
+      const chNum = ch.chapterNumber || ch.chapter_number
+      return chNum === chapterNumber
+    })
+    if (currentIndex >= 0 && currentIndex < sortedChapters.length - 1) {
+      const nextCh = sortedChapters[currentIndex + 1]
+      return nextCh.chapterNumber || nextCh.chapter_number || null
+    }
+    return null
+  }, [chapterNumber, novelId, chapters, currentNovel?.totalChapters])
 
   // Initialize queue when audioFiles change from store
   useEffect(() => {
@@ -260,7 +320,10 @@ function AudioPlayer() {
         setIsLoading(false)
         
         // Auto-play if currently playing (for seamless transitions)
-        if (isPlaying) {
+        // Also auto-play if we were advancing chapters (wasPlayingRef)
+        // This ensures continuous playback when auto-advancing to next chapter
+        if (isPlaying || wasPlayingRef.current) {
+          wasPlayingRef.current = false // Reset after using (only used once per chapter transition)
           howl.play()
         }
       },
@@ -306,9 +369,50 @@ function AudioPlayer() {
         const advanced = audioQueue.advanceNext()
         
         if (!advanced) {
-          // End of queue
-          console.log(`[AudioPlayer] Reached end of queue`)
-          pauseAction()
+          // End of queue - check if we should advance to next chapter
+          console.log(`[AudioPlayer] Reached end of queue for chapter ${chapterNumber}`)
+          
+          // onend only fires when audio naturally ends (was playing)
+          // Check store state to be sure, but onend implies it was playing
+          const currentPlayingState = useAudioStore.getState().isPlaying
+          const shouldAutoAdvance = currentPlayingState && !isAdvancingChapter
+          
+          if (shouldAutoAdvance) {
+            // Try to advance to next chapter
+            const nextChapterNumber = getNextChapterNumber()
+            
+            if (nextChapterNumber !== null && novelId) {
+              console.log(`[AudioPlayer] Auto-advancing to next chapter: ${nextChapterNumber}`)
+              setIsAdvancingChapter(true)
+              wasPlayingRef.current = true // Mark that we want to continue playing
+              
+              // Load next chapter
+              loadChapter(novelId, nextChapterNumber)
+                .then(() => {
+                  console.log(`[AudioPlayer] ✅ Successfully loaded chapter ${nextChapterNumber}`)
+                  // The audio files will be loaded automatically by the useEffect in ReaderPage
+                  // The queue will be re-initialized when audioFiles change
+                  // Auto-play will continue via wasPlayingRef (handled in onload)
+                })
+                .catch((error) => {
+                  logError('Failed to load next chapter', error)
+                  wasPlayingRef.current = false
+                  pauseAction()
+                })
+                .finally(() => {
+                  setIsAdvancingChapter(false)
+                })
+            } else {
+              // No next chapter - end playback
+              console.log(`[AudioPlayer] No next chapter available, ending playback`)
+              wasPlayingRef.current = false
+              pauseAction()
+            }
+          } else {
+            // Not playing or already advancing - just pause
+            wasPlayingRef.current = false
+            pauseAction()
+          }
         }
       },
       onloaderror: (_id: number, error: unknown) => {
@@ -413,7 +517,7 @@ function AudioPlayer() {
         howl = null
       }
     }
-  }, [queueCurrentIndex, queueCurrentFile, queueTotalFiles, isPlaying, playbackRate, volume, showPlayer, novelId, chapterNumber, setCurrentTime, setDuration, setIsLoading, playAction, pauseAction, setCurrentAudio, saveProgress])
+  }, [queueCurrentIndex, queueCurrentFile, queueTotalFiles, isPlaying, playbackRate, volume, showPlayer, novelId, chapterNumber, setCurrentTime, setDuration, setIsLoading, playAction, pauseAction, setCurrentAudio, saveProgress, loadChapter, getNextChapterNumber, isAdvancingChapter])
   // NOTE: currentHowl is NOT in dependencies - it's set inside this effect, adding it would cause infinite loop
 
   // Update volume
@@ -576,6 +680,11 @@ function AudioPlayer() {
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
+  // Find current paragraph text
+  const currentParagraph = paragraphs?.find(
+    p => p.paragraphNumber === queueCurrentFile?.paragraphNumber
+  )
+
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-lg z-50">
       <div className="container mx-auto px-4 py-3 max-w-7xl">
@@ -600,6 +709,15 @@ function AudioPlayer() {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Current Paragraph Text */}
+        {currentParagraph?.text && (
+          <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 max-h-20 overflow-y-auto">
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              {currentParagraph.text}
+            </p>
+          </div>
+        )}
 
         {/* Progress Bar */}
         <div className="mb-3">
