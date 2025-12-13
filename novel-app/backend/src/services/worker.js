@@ -68,12 +68,14 @@ export class AudioWorker {
       if (!novel) {
         throw new Error(`Novel not found: ${novelId}`);
       }
+      const novelTitle = novel.title || null;
 
       // Get chapter from database (normalized table)
       const chapter = await ChapterModel.getByNovelAndNumber(novelId, chapterNumber);
       if (!chapter) {
         throw new Error(`Chapter ${chapterNumber} not found in novel ${novelId}`);
       }
+      const chapterTitle = chapter.title || null;
       
       // Get paragraphs from database (normalized table)
       const paragraphs = await ParagraphModel.getByChapter(chapter.id);
@@ -83,6 +85,13 @@ export class AudioWorker {
       
       // Transform to expected format for compatibility
       chapter.paragraphs = paragraphs;
+
+      // Preload generation progress and audio cache to avoid per-paragraph DB hits
+      const progressList = await GenerationProgressModel.getByChapter(novelId, chapterNumber);
+      const progressMap = new Map(progressList.map(p => [p.paragraph_number, p]));
+      const audioCacheList = await AudioCacheModel.getByChapterParagraphs(novelId, chapter.id, speakerId);
+      const audioCacheByParagraphId = new Map(audioCacheList.map(c => [c.paragraph_id, c]));
+      const audioCacheByParagraphNumber = new Map(audioCacheList.map(c => [c.paragraph_number, c]));
 
       // Generate audio for each paragraph separately
       const paragraphResults = [];
@@ -117,20 +126,8 @@ export class AudioWorker {
         // Check cache if not forcing regeneration
         if (!forceRegenerate) {
           try {
-            // IMPORTANT: Check generation progress for failed/skipped status
-            // QUAN TRỌNG: Kiểm tra tiến độ generation cho trạng thái failed/skipped
-            const { GenerationProgressModel } = await import('../models/GenerationProgress.js');
-            let generationProgress = null;
-            try {
-              generationProgress = await GenerationProgressModel.getByParagraph(
-                novelId,
-                chapterNumber,
-                paragraph.paragraphNumber
-              );
-            } catch (progressError) {
-              // Progress entry might not exist, continue
-              generationProgress = null;
-            }
+            // Check generation progress for failed/skipped status (preloaded map)
+            const generationProgress = progressMap.get(paragraph.paragraphNumber) || null;
             
             // Check if paragraph was previously failed - regenerate it
             // Kiểm tra xem paragraph đã từng thất bại - tạo lại
@@ -147,9 +144,6 @@ export class AudioWorker {
               try {
                 const fs = await import('fs/promises');
                 const path = await import('path');
-                const novel = await NovelModel.getById(novelId);
-                const novelTitle = novel?.title || null;
-                const chapterTitle = chapter.title || null;
                 const storageDir = await this.audioStorage.ensureStorageDir(
                   novelId,
                   chapterNumber,
@@ -174,77 +168,21 @@ export class AudioWorker {
               }
             }
             
-            // Check for existing audio file
-            const existingAudio = await AudioCacheModel.getByParagraph(
-              novelId,
-              chapter.id,
-              paragraph.id,
-              speakerId
-            );
+            // Check for existing audio file using preloaded cache
+            const existingAudio = audioCacheByParagraphId.get(paragraph.id)
+              || audioCacheByParagraphNumber.get(paragraph.paragraphNumber)
+              || null;
             
             let fileExists = false;
             let localAudioPath = null;
             
-            // Check database-stored path if entry exists
-            // Kiểm tra đường dẫn lưu trong database nếu entry tồn tại
             if (existingAudio) {
-              const expiresAt = new Date(existingAudio.expires_at);
-              const isValid = expiresAt > new Date();
+              const isValid = existingAudio.valid !== false;
               
-              if (isValid && existingAudio.local_audio_path) {
-                try {
-                  const fs = await import('fs/promises');
-                  const stats = await fs.stat(existingAudio.local_audio_path);
-                  fileExists = stats.isFile() && stats.size > 0;
-                  if (fileExists) {
-                    localAudioPath = existingAudio.local_audio_path;
-                  }
-                } catch (e) {
-                  // Database path doesn't exist, continue to check standard path
-                  // Đường dẫn database không tồn tại, tiếp tục kiểm tra đường dẫn chuẩn
-                  fileExists = false;
-                }
-              }
-            }
-            
-            // If database check failed or no database entry, check standard storage path
-            // Nếu kiểm tra database thất bại hoặc không có entry, kiểm tra đường dẫn storage chuẩn
-            if (!fileExists) {
-              try {
-                const fs = await import('fs/promises');
-                const path = await import('path');
-                
-                // Build expected file path based on storage structure
-                // Xây dựng đường dẫn file mong đợi dựa trên cấu trúc storage
-                const novel = await NovelModel.getById(novelId);
-                const novelTitle = novel?.title || null;
-                const chapterTitle = chapter.title || null;
-                
-                // Use audioStorage to get expected path (same logic as generateAndStore)
-                // Sử dụng audioStorage để lấy đường dẫn mong đợi (cùng logic như generateAndStore)
-                const storageDir = await this.audioStorage.ensureStorageDir(
-                  novelId,
-                  chapterNumber,
-                  paragraph.paragraphNumber,
-                  chapterTitle,
-                  novelTitle
-                );
-                const expectedPath = path.join(storageDir, `paragraph_${String(paragraph.paragraphNumber).padStart(3, '0')}.wav`);
-                
-                try {
-                  const stats = await fs.stat(expectedPath);
-                  fileExists = stats.isFile() && stats.size > 0;
-                  if (fileExists) {
-                    localAudioPath = expectedPath;
-                    console.log(`[Worker] ✅ Found audio file at expected path: ${expectedPath}`);
-                  }
-                } catch (e) {
-                  // Expected path doesn't exist
-                  // Đường dẫn mong đợi không tồn tại
-                  fileExists = false;
-                }
-              } catch (pathError) {
-                console.warn(`[Worker] ⚠️ Error checking standard path: ${pathError.message}`);
+              if (isValid && existingAudio.local_audio_path && !forceRegenerate) {
+                // Trust valid cache without extra disk I/O
+                fileExists = true;
+                localAudioPath = existingAudio.local_audio_path;
               }
             }
             
@@ -320,9 +258,11 @@ export class AudioWorker {
       // Helper function to process a single paragraph
       // Hàm helper để xử lý một paragraph
       const processParagraph = async (paragraph, index) => {
+        const startTime = Date.now();
         const paragraphText = paragraph.text?.trim();
         
         if (!paragraphText || paragraphText.length === 0) {
+          console.log(`[Worker] ⏱️ Paragraph ${paragraph.paragraphNumber} skipped (empty) in ${Date.now() - startTime}ms`);
           return { success: true, cached: true, skipped: true, paragraphNumber: paragraph.paragraphNumber };
         }
         
@@ -427,6 +367,7 @@ export class AudioWorker {
             console.warn(`[Worker] ⚠️ Failed to track progress: ${progressError.message}`);
           }
           
+          console.log(`[Worker] ⏱️ Paragraph ${paragraph.paragraphNumber} skipped in ${Date.now() - startTime}ms (meaningless text)`);
           return {
             success: true,
             skipped: true,
@@ -576,6 +517,7 @@ export class AudioWorker {
           console.log(`[Worker] ✅ Audio paragraph ${paragraph.paragraphNumber} đã được tạo`);
           console.log(`[Worker] File ID: ${audioMetadata.fileId}`);
           console.log(`[Worker] Local Audio Path: ${audioMetadata.localAudioPath || 'NOT SAVED ❌'}`);
+          console.log(`[Worker] ⏱️ Paragraph ${paragraph.paragraphNumber} completed in ${Date.now() - startTime}ms`);
           console.log(`[Worker] ==========================================`);
 
           // Cache paragraph audio metadata
@@ -638,6 +580,7 @@ export class AudioWorker {
             const reason = error.reason || error.message || 'Meaningless paragraph';
             console.warn(`[Worker] ⚠️ Skipping paragraph ${paragraph.paragraphNumber}: ${reason}`);
             console.warn(`[Worker] ⚠️ Bỏ qua paragraph ${paragraph.paragraphNumber}: ${reason}`);
+            console.warn(`[Worker] ⏱️ Paragraph ${paragraph.paragraphNumber} skipped in ${Date.now() - startTime}ms (TTS validation)`);
             
             // Update generation progress - Mark as skipped
             if (progressId) {
@@ -783,6 +726,7 @@ export class AudioWorker {
         const batch = paragraphsToGenerate.slice(i, i + parallelLimit);
         const batchNum = Math.floor(i / parallelLimit) + 1;
         const totalBatches = Math.ceil(paragraphsToGenerate.length / parallelLimit);
+        const batchStart = Date.now();
         
         console.log(`[Worker] 🔄 Processing batch ${batchNum}/${totalBatches}: paragraphs ${batch[0].paragraph.paragraphNumber} to ${batch[batch.length - 1].paragraph.paragraphNumber}`);
         console.log(`[Worker] 🔄 Xử lý batch ${batchNum}/${totalBatches}: paragraphs ${batch[0].paragraph.paragraphNumber} đến ${batch[batch.length - 1].paragraph.paragraphNumber}`);
@@ -813,6 +757,12 @@ export class AudioWorker {
             });
           }
         }
+
+        const batchDuration = Date.now() - batchStart;
+        const batchFulfilled = batchResults.filter(r => r.status === 'fulfilled').length;
+        const batchRejected = batchResults.filter(r => r.status === 'rejected').length;
+        const batchSkipped = batchResults.filter(r => r.status === 'fulfilled' && r.value?.skipped).length;
+        console.log(`[Worker] ⏱️ Batch ${batchNum}/${totalBatches} done in ${batchDuration}ms (fulfilled: ${batchFulfilled}, rejected: ${batchRejected}, skipped: ${batchSkipped})`);
         
         // Small delay between batches to avoid overloading TTS backend
         if (i + parallelLimit < paragraphsToGenerate.length) {

@@ -68,9 +68,14 @@ export class AudioCacheModel {
       
       // Remove the rn column from results (it's just for filtering)
       // Loại bỏ cột rn khỏi kết quả (nó chỉ để lọc)
+      const now = new Date();
       return results.map(row => {
         const { rn, ...rest } = row;
-        return rest;
+        const expiresAt = rest.expires_at ? new Date(rest.expires_at) : null;
+        return {
+          ...rest,
+          valid: expiresAt ? expiresAt > now : true
+        };
       });
     } catch (error) {
       // Fallback: If window functions not supported (SQLite < 3.25.0), use simple query
@@ -92,7 +97,15 @@ export class AudioCacheModel {
       
       // Return results - JavaScript deduplication will handle duplicates
       // Trả về kết quả - JavaScript deduplication sẽ xử lý trùng lặp
-      return db.prepare(query).all(...params);
+      const rows = db.prepare(query).all(...params);
+      const now = new Date();
+      return rows.map(rest => {
+        const expiresAt = rest.expires_at ? new Date(rest.expires_at) : null;
+        return {
+          ...rest,
+          valid: expiresAt ? expiresAt > now : true
+        };
+      });
     }
   }
 
