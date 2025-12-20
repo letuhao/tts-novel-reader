@@ -198,14 +198,27 @@ export class RoleDetectionWorker {
         const role = result.role_map[detectedIdx];
         const voiceId = result.voice_map[detectedIdx];
 
-        if (role && voiceId) {
-          // Always update when we have a valid role (this overwrites existing roles in force regenerate mode)
-          // Luôn cập nhật khi có vai diễn hợp lệ (điều này ghi đè vai diễn hiện có trong chế độ ép tạo lại)
-          await ParagraphModel.update(detectedParagraph.id, {
+        if (role) {
+          // CRITICAL: When force regenerating, clear voiceId so worker uses enhanced voice mapping
+          // QUAN TRỌNG: Khi ép tạo lại, xóa voiceId để worker sử dụng enhanced voice mapping
+          // The old voiceId (e.g., "quynh" from VietTTS) is not valid for other models (e.g., Coqui XTTS-v2)
+          // voiceId cũ (ví dụ: "quynh" từ VietTTS) không hợp lệ cho các model khác (ví dụ: Coqui XTTS-v2)
+          // The worker will use paragraph.role with enhanced voice mapping to get the correct voice for the current model
+          // Worker sẽ sử dụng paragraph.role với enhanced voice mapping để lấy giọng đúng cho model hiện tại
+          const updateData = {
             role: role,
-            voiceId: voiceId
-          });
+            // Clear voiceId when force regenerating - let worker handle voice mapping based on role
+            // Xóa voiceId khi ép tạo lại - để worker xử lý ánh xạ giọng dựa trên vai diễn
+            voiceId: forceRegenerateRoles ? null : (voiceId || null)
+          };
+          
+          await ParagraphModel.update(detectedParagraph.id, updateData);
           updatedCount++;
+          
+          if (forceRegenerateRoles && voiceId) {
+            console.log(`[RoleDetectionWorker] Cleared old voiceId "${voiceId}" for paragraph ${detectedParagraph.paragraphNumber}, role: ${role}`);
+            console.log(`[RoleDetectionWorker] Đã xóa voiceId cũ "${voiceId}" cho paragraph ${detectedParagraph.paragraphNumber}, vai diễn: ${role}`);
+          }
 
           // Update progress every 10 paragraphs
           if (updateProgress && progressId && updatedCount % 10 === 0) {

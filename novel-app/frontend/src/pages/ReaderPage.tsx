@@ -530,6 +530,8 @@ function ReaderPage() {
           paragraphRefs={paragraphRefs}
           onParagraphClick={handleParagraphClick}
           showRoleIndicator={true}
+          novelId={id || null}
+          model={import.meta.env.VITE_TTS_DEFAULT_MODEL || 'coqui-xtts-v2'}
         />
       )}
     </div>

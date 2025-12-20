@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BookOpen, Settings, Sun, Moon } from 'lucide-react'
+import { BookOpen, Settings, Sun, Moon, Mic } from 'lucide-react'
 import { useThemeStore } from '../../store/useUIStore'
 import AudioPlayer from '../Audio/AudioPlayer'
 
@@ -33,6 +33,17 @@ function Layout({ children }: LayoutProps) {
                 }`}
               >
                 Library
+              </Link>
+              <Link
+                to="/voice-management"
+                className={`px-3 py-2 rounded-lg transition-colors ${
+                  location.pathname === '/voice-management'
+                    ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+                aria-label="Voice Management"
+              >
+                <Mic className="w-5 h-5" />
               </Link>
               <Link
                 to="/settings"

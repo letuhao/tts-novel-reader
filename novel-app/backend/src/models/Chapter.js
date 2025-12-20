@@ -39,9 +39,16 @@ export class ChapterModel {
       const uniqueNumbers = [...new Set(chapterNumbers)];
       console.log(`[ChapterModel] 📚 Loaded ${transformed.length} chapters for novel ${novelId}`);
       console.log(`[ChapterModel] 📚 Unique chapter numbers: ${uniqueNumbers.length} (${uniqueNumbers.slice(0, 10).join(', ')}${uniqueNumbers.length > 10 ? '...' : ''})`);
-      if (uniqueNumbers.length === 1 && uniqueNumbers[0] === 1) {
-        console.warn(`[ChapterModel] ⚠️ WARNING: All chapters have chapterNumber = 1! This suggests a parsing issue.`);
-        console.warn(`[ChapterModel] ⚠️ CẢNH BÁO: Tất cả chapters đều có chapterNumber = 1! Điều này cho thấy vấn đề parsing.`);
+      // Only warn if there are MULTIPLE chapters but they all have the same number
+      // Chỉ cảnh báo nếu có NHIỀU chapters nhưng tất cả đều có cùng số
+      if (transformed.length > 1 && uniqueNumbers.length === 1 && uniqueNumbers[0] === 1) {
+        console.warn(`[ChapterModel] ⚠️ WARNING: All ${transformed.length} chapters have chapterNumber = 1! This suggests a parsing issue.`);
+        console.warn(`[ChapterModel] ⚠️ CẢNH BÁO: Tất cả ${transformed.length} chapters đều có chapterNumber = 1! Điều này cho thấy vấn đề parsing.`);
+      } else if (transformed.length === 1 && uniqueNumbers[0] === 1) {
+        // Single chapter with number 1 is normal (novel has no chapter markers)
+        // Một chapter với số 1 là bình thường (novel không có chapter markers)
+        console.log(`[ChapterModel] ℹ️  Single chapter detected (no chapter markers found in novel)`);
+        console.log(`[ChapterModel] ℹ️  Phát hiện một chapter (không tìm thấy chapter markers trong novel)`);
       }
     }
     

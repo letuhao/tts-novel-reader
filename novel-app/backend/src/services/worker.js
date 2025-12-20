@@ -12,6 +12,7 @@ import { ParagraphModel } from '../models/Paragraph.js';
 import { GenerationProgressModel } from '../models/GenerationProgress.js';
 import { AudioCacheModel } from '../models/AudioCache.js';
 import { getVoiceMapping } from '../utils/voiceMapping.js';
+import { getEnhancedVoiceMapping } from '../utils/enhancedVoiceMapping.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export class AudioWorker {
@@ -465,24 +466,32 @@ export class AudioWorker {
           const novelTitle = novel.title || null;
           const chapterTitle = chapter.title || null;
           
-          // Determine voice based on paragraph role/voiceId
-          // Xác định giọng dựa trên vai diễn/voiceId của paragraph
-          let selectedVoice = 'quynh';  // Default fallback voice / Giọng mặc định
+          // Determine voice based on paragraph role/voiceId using enhanced voice mapping
+          // Xác định giọng dựa trên vai diễn/voiceId sử dụng enhanced voice mapping
+          const enhancedVoiceMapping = getEnhancedVoiceMapping();
+          const currentModel = this.audioStorage.getDefaultModel();
           
-          if (paragraph.voiceId) {
-            // Use voice from role detection / Sử dụng giọng từ role detection
-            selectedVoice = paragraph.voiceId;
-            console.log(`[Worker] Using detected voice: ${selectedVoice} (from role detection)`);
-            console.log(`[Worker] Sử dụng giọng đã phát hiện: ${selectedVoice} (từ role detection)`);
-          } else if (paragraph.role) {
-            // Use voice mapping based on role / Sử dụng voice mapping dựa trên vai diễn
-            const voiceMapping = getVoiceMapping();
-            selectedVoice = voiceMapping.getVoiceForRole(paragraph.role);
-            console.log(`[Worker] Using mapped voice: ${selectedVoice} (role: ${paragraph.role})`);
-            console.log(`[Worker] Sử dụng giọng đã map: ${selectedVoice} (vai diễn: ${paragraph.role})`);
+          let selectedVoice = null;
+          
+          // CRITICAL: Always use enhanced voice mapping to ensure voice is valid for current model
+          // QUAN TRỌNG: Luôn sử dụng enhanced voice mapping để đảm bảo giọng hợp lệ cho model hiện tại
+          // Even if paragraph.voiceId exists, it might be from a different model (e.g., VietTTS "quynh" for Coqui XTTS-v2)
+          // Ngay cả khi paragraph.voiceId tồn tại, nó có thể từ model khác (ví dụ: VietTTS "quynh" cho Coqui XTTS-v2)
+          if (paragraph.role) {
+            // Use enhanced voice mapping based on role (this ensures correct voice for current model)
+            // Sử dụng enhanced voice mapping dựa trên vai diễn (đảm bảo giọng đúng cho model hiện tại)
+            // Use sync version for now (async loading happens in background)
+            // Sử dụng phiên bản sync hiện tại (async loading xảy ra ở background)
+            selectedVoice = enhancedVoiceMapping.getVoiceForRoleSync(paragraph.role, currentModel, novelId);
+            console.log(`[Worker] Using enhanced mapped voice: ${selectedVoice} (role: ${paragraph.role}, model: ${currentModel})`);
+            console.log(`[Worker] Sử dụng giọng đã map nâng cao: ${selectedVoice} (vai diễn: ${paragraph.role}, model: ${currentModel})`);
+            if (paragraph.voiceId && paragraph.voiceId !== selectedVoice) {
+              console.log(`[Worker] ⚠️  Voice ID mismatch: paragraph.voiceId="${paragraph.voiceId}" (from different model) → mapped to "${selectedVoice}" for ${currentModel}`);
+              console.log(`[Worker] ⚠️  Không khớp Voice ID: paragraph.voiceId="${paragraph.voiceId}" (từ model khác) → đã map thành "${selectedVoice}" cho ${currentModel}`);
+            }
           } else {
-            // Fallback to default 'quynh' if no role detected / Dùng mặc định 'quynh' nếu chưa phát hiện vai diễn
-            selectedVoice = 'quynh';
+            // Fallback to narrator voice / Dùng giọng narrator mặc định
+            selectedVoice = enhancedVoiceMapping.getVoiceForRoleSync('narrator', currentModel, novelId);
             console.log(`[Worker] No role detected, using fallback voice: ${selectedVoice}`);
             console.log(`[Worker] Chưa phát hiện vai diễn, dùng giọng mặc định: ${selectedVoice}`);
           }

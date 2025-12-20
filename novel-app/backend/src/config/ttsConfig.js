@@ -26,6 +26,14 @@ export const TTS_BACKENDS = {
     model: 'vieneu-tts',
     defaultVoice: 'id_0004',
     port: 11111
+  },
+  COQUI_XTTS_V2: {
+    name: 'coqui-xtts-v2',
+    displayName: 'Coqui XTTS-v2 (English)',
+    baseURL: process.env.COQUI_TTS_BACKEND_URL || 'http://127.0.0.1:11111',
+    model: 'coqui-xtts-v2',
+    defaultVoice: 'Claribel Dervla',
+    port: 11111
   }
 };
 
@@ -186,6 +194,39 @@ export function getMappedVoice(voiceId, backendName) {
     return voiceId;
   }
   
+  // For Coqui XTTS-v2: validate speaker name or use default
+  // Cho Coqui XTTS-v2: xác thực tên speaker hoặc dùng mặc định
+  if (backendName === 'coqui-xtts-v2' || backendName === 'coqui-tts' || backendName === 'xtts-v2') {
+    // Known valid Coqui XTTS-v2 speakers (built-in)
+    // Các speaker Coqui XTTS-v2 hợp lệ đã biết (built-in)
+    const validCoquiSpeakers = [
+      'Claribel Dervla', 'Daisy Studious', 'Gracie Wise', 'Tammie Ema', 'Alison Dietlinde',
+      'Ana Florence', 'Annmarie Nele', 'Asya Anara', 'Brenda Stern', 'Gitta Nikolina',
+      'Henriette Usha', 'Sofia Hellen', 'Tammy Grit', 'Tanja Adelina', 'Vjollca Johnnie',
+      'Nova Hogarth', 'Maja Ruoho', 'Uta Obando', 'Lidiya Szekeres', 'Chandra MacFarland',
+      'Szofi Granger', 'Camilla Holmström', 'Lilya Stainthorpe', 'Zofija Kendrick', 'Narelle Moon',
+      'Barbora MacLean', 'Alexandra Hisakawa', 'Alma María', 'Rosemary Okafor', 'Ige Behringer',
+      'Filip Traverse', 'Damjan Chapman', 'Wulf Carlevaro',
+      'Andrew Chipper', 'Badr Odhiambo', 'Dionisio Schuyler', 'Royston Min', 'Viktor Eka',
+      'Abrahan Mack', 'Adde Michal', 'Baldur Sanjin', 'Craig Gutsy', 'Damien Black',
+      'Gilberto Mathias', 'Ilkin Urbano', 'Kazuhiko Atallah', 'Ludvig Milivoj', 'Suad Qasim',
+      'Torcull Diarmuid', 'Viktor Menelaos', 'Zacharie Aimilios', 'Aaron Dreschner', 'Kumar Dahl',
+      'Eugenio Mataracı', 'Ferran Simen', 'Xavier Hayasaka', 'Luis Moray', 'Marcos Rudaski'
+    ];
+    
+    // If voiceId is a valid Coqui speaker, return it
+    // Nếu voiceId là speaker Coqui hợp lệ, trả về nó
+    if (validCoquiSpeakers.includes(voiceId)) {
+      console.log(`[TTS Config] [getMappedVoice] [DEBUG] ✅ Valid Coqui speaker: "${voiceId}"`);
+      return voiceId;
+    }
+    
+    // If voiceId is from a different model (e.g., VietTTS "quynh"), use default
+    // Nếu voiceId từ model khác (ví dụ: VietTTS "quynh"), dùng mặc định
+    console.log(`[TTS Config] [getMappedVoice] [DEBUG] ⚠️  Invalid Coqui speaker: "${voiceId}", using default: "Claribel Dervla"`);
+    return 'Claribel Dervla'; // Default Coqui speaker
+  }
+  
   console.log(`[TTS Config] [getMappedVoice] [DEBUG] ❌ No mapping found, returning null`);
   return null;
 }
@@ -226,6 +267,8 @@ export function getDefaultBackend() {
   // Ánh xạ tên model sang key backend
   if (model === 'vieneu-tts') {
     return TTS_BACKENDS.VIENEU_TTS;
+  } else if (model === 'coqui-xtts-v2' || model === 'coqui-tts' || model === 'xtts-v2') {
+    return TTS_BACKENDS.COQUI_XTTS_V2;
   } else {
     return TTS_BACKENDS.VIETTTS;
   }
@@ -243,6 +286,8 @@ export function getBackendConfig(backendName) {
     return TTS_BACKENDS.VIENEU_TTS;
   } else if (backendName === 'viettts' || backendName === 'viet-tts') {
     return TTS_BACKENDS.VIETTTS;
+  } else if (backendName === 'coqui-xtts-v2' || backendName === 'coqui-tts' || backendName === 'xtts-v2') {
+    return TTS_BACKENDS.COQUI_XTTS_V2;
   }
   return null;
 }

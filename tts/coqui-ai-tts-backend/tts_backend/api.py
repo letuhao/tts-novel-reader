@@ -19,7 +19,7 @@ router = APIRouter()
 class TTSSynthesizeRequest(BaseModel):
     """TTS synthesis request / Yêu cầu tổng hợp TTS"""
     text: str
-    model: Optional[Literal["xtts-english"]] = "xtts-english"
+    model: Optional[Literal["xtts-english", "coqui-xtts-v2", "coqui-tts", "xtts-v2"]] = "xtts-english"
     # XTTS English parameters / Tham số XTTS tiếng Anh
     speaker_wav: Optional[str] = None  # Reference audio for voice cloning / Audio tham chiếu cho nhân bản giọng nói
     speaker: Optional[str] = None  # Built-in speaker name (e.g., "Ana Florence") / Tên giọng có sẵn (ví dụ: "Ana Florence")
@@ -31,7 +31,7 @@ class TTSSynthesizeRequest(BaseModel):
 
 class ModelInfoRequest(BaseModel):
     """Model info request / Yêu cầu thông tin model"""
-    model: Literal["xtts-english"]
+    model: Literal["xtts-english", "coqui-xtts-v2", "coqui-tts", "xtts-v2"]
 
 # Health check / Kiểm tra sức khỏe
 @router.get("/health")
@@ -84,7 +84,12 @@ async def get_model_info(request: ModelInfoRequest):
     """
     try:
         service = get_service()
-        info = service.get_model_info(request.model)
+        # Normalize model name (accept aliases)
+        # Chuẩn hóa tên model (chấp nhận bí danh)
+        normalized_model = request.model
+        if request.model in ["coqui-xtts-v2", "coqui-tts", "xtts-v2"]:
+            normalized_model = "xtts-english"
+        info = service.get_model_info(normalized_model)
         return {"success": True, "info": info}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -115,17 +120,23 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
     request_id = str(uuid.uuid4())
     
     try:
+        # Normalize model name (accept aliases)
+        # Chuẩn hóa tên model (chấp nhận bí danh)
+        normalized_model = request.model
+        if request.model in ["coqui-xtts-v2", "coqui-tts", "xtts-v2"]:
+            normalized_model = "xtts-english"
+        
         # Synthesize audio
         # Tổng hợp audio
         audio = service.synthesize(
             text=text,
-            model=request.model,
+            model=normalized_model,
             speaker_wav=request.speaker_wav,
             speaker=request.speaker,
             language=request.language or "en"
         )
         
-        model_info = service.get_model_info(request.model)
+        model_info = service.get_model_info(normalized_model)
         sample_rate = model_info["sample_rate"]
         
         # Serialize audio
@@ -140,7 +151,7 @@ async def synthesize_speech(request: TTSSynthesizeRequest):
                 audio_data=audio_data,
                 text=request.text,
                 speaker_id=request.speaker_wav or "default",
-                model=request.model,
+                model=normalized_model,
                 expiry_hours=request.expiry_hours,
                 metadata={
                     "request_id": request_id,
