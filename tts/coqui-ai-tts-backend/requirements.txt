@@ -1,0 +1,25 @@
+# Coqui TTS Backend Requirements
+# Yêu cầu Coqui TTS Backend
+
+# Coqui TTS
+coqui-tts>=0.22.0
+
+# PyTorch (install separately based on your CUDA version)
+# torch
+# torchvision
+# torchaudio
+
+# Audio processing
+soundfile>=0.13.1
+librosa>=0.11.0
+numpy>=1.24.0
+
+# API & Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.11.3
+python-multipart>=0.0.9
+
+# Utilities
+tqdm>=4.65.0
+

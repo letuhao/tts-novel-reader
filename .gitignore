@@ -251,3 +251,7 @@ models/dangvansam-viet-tts/
 tts/viet-tts
 
 libraries/Vinorm
+
+models/coqui-XTTS-v2/
+
+tts/coqui-ai-TTS
