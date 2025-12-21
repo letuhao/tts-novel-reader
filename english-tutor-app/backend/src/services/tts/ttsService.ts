@@ -114,7 +114,9 @@ export class TTSService {
         throw new Error('Text cannot be empty');
       }
 
-      logger.debug({ textLength: text.length, voice, speed }, 'Synthesizing speech');
+      const ttsRequestStartTime = Date.now();
+      logger.info({ textLength: text.length, voice, speed, model }, '🎤 [TTS-SERVICE] Starting TTS synthesis');
+      logger.debug({ text: text.substring(0, 100) }, '📝 [TTS-SERVICE] Text preview');
 
       // Prepare request for XTTS backend (Coqui TTS)
       // XTTS API format: { text, model, speaker, speaker_wav, language, store, expiry_hours, return_audio }
@@ -146,10 +148,16 @@ export class TTSService {
       // Speed control would require post-processing or different model
       // For now, we'll ignore the speed parameter
 
+      const apiRequestStartTime = Date.now();
+      logger.debug('📡 [TTS-SERVICE] Sending request to TTS backend...');
+      
       const response = await this.client.post('/api/tts/synthesize', ttsRequest, {
         responseType: 'arraybuffer', // For binary audio data
         timeout: 120000, // 2 minutes for longer texts
       });
+      
+      const apiRequestTime = Date.now() - apiRequestStartTime;
+      logger.debug({ timeMs: apiRequestTime }, '📥 [TTS-SERVICE] TTS backend response received');
 
       // Extract metadata from headers (XTTS uses different header names)
       const requestId = response.headers['x-request-id'] as string | undefined;
@@ -160,28 +168,39 @@ export class TTSService {
       let fileId = requestId;
       let expiresAt: string | undefined;
 
+      const metadataStartTime = Date.now();
       try {
+        logger.debug('📋 [TTS-SERVICE] Getting file metadata...');
         const metadataRequest = { ...ttsRequest, return_audio: false };
         const metadataResponse = await this.client.post('/api/tts/synthesize', metadataRequest, {
           timeout: 120000,
         });
+        const metadataTime = Date.now() - metadataStartTime;
+        
         if (metadataResponse.data && metadataResponse.data.file_metadata) {
           fileId = metadataResponse.data.file_metadata.file_id;
           expiresAt = metadataResponse.data.file_metadata.expires_at;
+          logger.debug({ timeMs: metadataTime, fileId }, '✅ [TTS-SERVICE] Metadata retrieved');
         }
       } catch (metadataError) {
+        const metadataTime = Date.now() - metadataStartTime;
         // If metadata call fails, continue with request ID
-        logger.debug({ err: metadataError }, 'Failed to get file metadata, using request ID');
+        logger.warn({ err: metadataError, timeMs: metadataTime }, '⚠️ [TTS-SERVICE] Failed to get file metadata, using request ID');
       }
 
       const audioData = Buffer.from(response.data);
+      const totalTime = Date.now() - ttsRequestStartTime;
 
       logger.info({ 
         textLength: text.length, 
         fileId, 
         hasAudio: audioData.length > 0,
-        duration: duration ? parseFloat(duration) : undefined
-      }, 'Speech synthesized successfully');
+        audioSizeBytes: audioData.length,
+        duration: duration ? parseFloat(duration) : undefined,
+        apiRequestTimeMs: apiRequestTime,
+        totalTimeMs: totalTime,
+        charsPerSecond: (text.length / (totalTime / 1000)).toFixed(0)
+      }, '✅ [TTS-SERVICE] Speech synthesized successfully');
 
       return {
         success: true,

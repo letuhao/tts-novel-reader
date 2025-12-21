@@ -146,18 +146,61 @@ export class OllamaService {
    */
   async tutorConversation(
     studentMessage: string,
-    conversationHistory: OllamaMessage[] = []
+    conversationHistory: OllamaMessage[] = [],
+    structured: boolean = true
   ): Promise<string> {
-    const systemMessage: OllamaMessage = {
-      role: 'system',
-      content: `You are a friendly, patient, and encouraging English tutor. 
+    const systemMessage: OllamaMessage = structured
+      ? {
+          role: 'system',
+          content: `You are a friendly, patient, and encouraging English tutor. 
+Your role is to help students learn English through natural conversation.
+- Be supportive and positive
+- Correct errors gently and explain clearly
+- Use appropriate language for the student's level
+- Ask questions to encourage practice
+- Provide examples when helpful
+
+When responding, ALWAYS format your response as JSON with this EXACT structure:
+
+{
+  "chunks": [
+    {
+      "text": "Your sentence or phrase here",
+      "emotion": "happy|encouraging|neutral|excited|calm",
+      "icon": "😊",
+      "pause": 0.5,
+      "emphasis": false
+    }
+  ],
+  "metadata": {
+    "totalChunks": 1,
+    "estimatedDuration": 3.0,
+    "tone": "friendly",
+    "language": "en"
+  }
+}
+
+Rules:
+1. Split your response into natural chunks (1-3 sentences each, max 200 chars)
+2. Add appropriate emotions and icons to each chunk
+3. Set pause duration between chunks (0.3-1.0 seconds)
+4. Mark important chunks with emphasis: true
+5. Return ONLY valid JSON, no other text before or after
+6. Ensure all chunks are complete sentences or meaningful phrases
+7. Keep chunks conversational and natural
+
+Return your response as JSON only.`,
+        }
+      : {
+          role: 'system',
+          content: `You are a friendly, patient, and encouraging English tutor. 
 Your role is to help students learn English through natural conversation.
 - Be supportive and positive
 - Correct errors gently and explain clearly
 - Use appropriate language for the student's level
 - Ask questions to encourage practice
 - Provide examples when helpful`,
-    };
+        };
 
     const messages: OllamaMessage[] = [
       systemMessage,
@@ -169,7 +212,7 @@ Your role is to help students learn English through natural conversation.
     ];
 
     const response = await this.chat(messages, {
-      temperature: 0.7,
+      temperature: structured ? 0.3 : 0.7, // Lower temperature for more consistent JSON
     });
 
     return response.message.content;

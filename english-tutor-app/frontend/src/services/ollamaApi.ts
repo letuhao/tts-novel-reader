@@ -9,13 +9,42 @@ export interface OllamaChatRequest {
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   level?: string;
   context?: string;
+  usePipeline?: boolean; // Use structured response pipeline (default: true)
+  voice?: string; // Voice for TTS
+  conversationId?: string; // Conversation ID for WebSocket events
+  useWebSocket?: boolean; // Use WebSocket for real-time updates (default: false)
+}
+
+export interface StructuredChunk {
+  id?: string;
+  text: string;
+  emotion?: 'happy' | 'encouraging' | 'neutral' | 'excited' | 'calm';
+  icon?: string;
+  pause?: number;
+  emphasis?: boolean;
+  audioFileId?: string;
+  duration?: number;
+  ttsStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  ttsError?: string;
 }
 
 export interface OllamaChatResponse {
   success: boolean;
   data?: {
-    response: string;
-    model: string;
+    // New pipeline format - all chunks returned immediately
+    chunks?: StructuredChunk[]; // Array of all chunks with TTS status
+    metadata?: {
+      totalChunks: number;
+      estimatedDuration?: number;
+      tone?: string;
+      language?: string;
+    };
+    source?: 'structured' | 'fallback';
+    
+    // Legacy format (if usePipeline=false)
+    response?: string;
+    message?: string;
+    model?: string;
     usage?: {
       prompt_tokens?: number;
       completion_tokens?: number;

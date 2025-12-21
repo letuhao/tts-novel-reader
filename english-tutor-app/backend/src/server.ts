@@ -3,6 +3,7 @@
  * Main entry point for the backend API server
  */
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -11,6 +12,7 @@ import { logger } from './utils/logger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { testConnection, closePool } from './database/connection.js';
 import { runMigrations } from './database/migrations/migrate.js';
+import { getWebSocketService } from './services/websocket/websocketService.js';
 
 // Load environment variables
 dotenv.config();
@@ -153,8 +155,15 @@ app.use((_req: Request, res: Response) => {
   // Initialize database first
   await initializeDatabase();
 
+  // Create HTTP server (needed for WebSocket)
+  const httpServer = createServer(app);
+
+  // Initialize WebSocket server
+  const wsService = getWebSocketService();
+  wsService.initialize(httpServer);
+
   // Start HTTP server
-  app.listen(Number(PORT), HOST, () => {
+  httpServer.listen(Number(PORT), HOST, () => {
     logger.info({
       port: Number(PORT),
       host: HOST,
@@ -162,6 +171,7 @@ app.use((_req: Request, res: Response) => {
     }, 'English Tutor Backend Server started');
     
     logger.info(`Server running on http://${HOST}:${PORT}`);
+    logger.info(`WebSocket: ws://${HOST}:${PORT}/ws`);
     logger.info(`Health check: http://${HOST}:${PORT}/health`);
     logger.info(`API: http://${HOST}:${PORT}/api`);
   });
