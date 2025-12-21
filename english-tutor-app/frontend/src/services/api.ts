@@ -1,7 +1,8 @@
 /**
  * API Service - Base Axios instance and configuration
  */
-import axios, { type AxiosInstance, type AxiosError } from 'axios';
+import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import { formatErrorMessage, isRetryableError, retry, type RetryOptions } from '../utils/errorHandler';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:11200';
 
@@ -11,12 +12,20 @@ export const apiClient: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Include cookies for session management
 });
 
-// Request interceptor
+// Request interceptor - Add auth token to requests
 apiClient.interceptors.request.use(
-  (config) => {
-    // Add any auth tokens here if needed
+  (config: InternalAxiosRequestConfig) => {
+    // Get token from localStorage
+    const token = localStorage.getItem('auth_token');
+    
+    if (token && config.headers) {
+      // Add Authorization header
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
     return config;
   },
   (error) => {
@@ -24,7 +33,7 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor
+// Response interceptor - Handle errors with better messages
 apiClient.interceptors.response.use(
   (response) => {
     return response;
@@ -34,27 +43,47 @@ apiClient.interceptors.response.use(
     if (error.response) {
       // Server responded with error
       const status = error.response.status;
-      const data = error.response.data as { error?: string; detail?: string };
+      const data = error.response.data as { error?: string; detail?: string; message?: string };
       
       if (status === 401) {
-        // Unauthorized - handle auth
-        console.error('Unauthorized access');
-      } else if (status === 404) {
-        console.error('Resource not found');
-      } else if (status >= 500) {
-        console.error('Server error:', data.error ?? data.detail ?? 'Unknown error');
+        // Unauthorized - clear auth and redirect to login
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        
+        // Only redirect if not already on login/register page
+        if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+          window.location.href = '/login';
+        }
       }
+      
+      // Create a more user-friendly error
+      const errorMessage = data.error || data.detail || data.message || formatErrorMessage(error);
+      const enhancedError = new Error(errorMessage);
+      (enhancedError as any).status = status;
+      (enhancedError as any).retryable = isRetryableError(error);
+      
+      return Promise.reject(enhancedError);
     } else if (error.request) {
       // Request made but no response
-      console.error('Network error: No response from server');
+      const networkError = new Error('Network error: No response from server');
+      (networkError as any).retryable = true;
+      return Promise.reject(networkError);
     } else {
       // Error in request setup
-      console.error('Request error:', error.message);
+      return Promise.reject(error);
     }
-    
-    return Promise.reject(error);
   }
 );
+
+/**
+ * Make API request with retry logic
+ */
+export async function apiRequestWithRetry<T>(
+  requestFn: () => Promise<T>,
+  options?: RetryOptions
+): Promise<T> {
+  return retry(requestFn, options);
+}
 
 export default apiClient;
 

@@ -1,751 +1,681 @@
 /**
- * Conversation Page - Main conversation interface
- * Uses WebSocket for real-time chunk updates
+ * Conversation Page - RxJS-based Event-Driven Architecture
+ * Uses RxJS for reactive event handling and audio queue management
  */
 import { useState, useEffect, useRef } from 'react';
-import { Send, Mic, MicOff, Volume2, VolumeX, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Send, Mic, MicOff, Loader2, Moon, Sun } from 'lucide-react';
+import MessageBubble from '../components/MessageBubble';
+import TypingIndicator from '../components/TypingIndicator';
+import { useDarkMode } from '../hooks/useDarkMode';
 import { useConversationStore } from '../store/useConversationStore';
 import { useAudioStore } from '../store/useAudioStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useAuth } from '../hooks/useAuth';
 import { chatWithTutor } from '../services/ollamaApi';
-import { getAudioFile } from '../services/ttsApi';
 import { transcribeAudio } from '../services/sttApi';
-import WebSocketService, { type WebSocketMessage } from '../services/websocketService';
-import { logger } from '../utils/logger';
+import { getConversation, getConversationMessages } from '../services/conversationApi';
+import type { MessageWithChunks } from '../services/conversationApi';
+import WebSocketRxService from '../services/websocketRxService';
+import { eventBus } from '../services/eventBus';
+import { audioQueueService } from '../services/audioQueueService';
+import { logger, setConversationStartTime, clearConversationStartTime } from '../utils/logger';
+import { formatErrorMessage, retry } from '../utils/errorHandler';
+import { Subscription } from 'rxjs';
+import { tap } from 'rxjs/operators';
 
 export default function Conversation(): JSX.Element {
-  const { messages, isLoading, error, addMessage, updateMessage, setLoading, setError, clearConversation, sessionId, setSessionId } = useConversationStore();
-  const { isRecording, startRecording, stopRecording, playAudio } = useAudioStore();
+  const { id: conversationIdFromUrl } = useParams<{ id?: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  
+  const { 
+    messages, 
+    isLoading, 
+    error, 
+    addMessage, 
+    updateMessage, 
+    setLoading, 
+    setError, 
+    setSessionId,
+    clearConversation
+  } = useConversationStore();
+  
+  const { isRecording, startRecording, stopRecording } = useAudioStore();
   const { selectedVoice } = useSettingsStore();
   const [inputText, setInputText] = useState('');
-  const [playingChunkId, setPlayingChunkId] = useState<string | null>(null);
-  // playingChunkId is used in the JSX below for highlighting
   const [wsConnected, setWsConnected] = useState(false);
-  const wsRef = useRef<WebSocketService | null>(null);
-  const chunkMessageMapRef = useRef<Map<string, string>>(new Map()); // chunk.id -> message.id
-  // Speaker queue: stores audio ready to play (with metadata)
-  const speakerQueueRef = useRef<Array<{ 
-    messageId: string; 
-    audioFileId: string; 
-    pause?: number;
-    speakerId?: string; // For future multi-speaker support
-    audioBlob?: Blob; 
-    audioUrl?: string;
-    duration?: number;
-  }>>([]);
-  const isPlayingRef = useRef(false);
-  const isQueueProcessorActiveRef = useRef(false); // Track if queue processor is running
-  const audioCacheRef = useRef<Map<string, { blob: Blob; url: string }>>(new Map()); // Cache fetched audio
+  const [conversationId, setConversationId] = useState<string | null>(conversationIdFromUrl || null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [darkMode, setDarkMode] = useDarkMode();
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  
+  const wsServiceRef = useRef<WebSocketRxService | null>(null);
+  const subscriptionsRef = useRef<Subscription[]>([]);
+  const chunkMessageMapRef = useRef<Map<string, string>>(new Map());
+  const isInitializingRef = useRef(false);
+  const hasInitializedRef = useRef(false);
 
-  // Initialize WebSocket connection
+  // Load conversation from URL (only load, never create)
   useEffect(() => {
-    // Prevent multiple connections
-    if (wsRef.current) {
-      logger.debug('WebSocket already initialized, skipping');
+    // Prevent duplicate initialization
+    if (isInitializingRef.current) {
+      logger.debug('Skipping duplicate conversation initialization - already in progress');
+      return;
+    }
+
+    // If we already have a conversationId and it matches the URL, skip
+    if (hasInitializedRef.current && conversationId && conversationId === conversationIdFromUrl) {
+      logger.debug('Conversation already initialized', { conversationId });
+      return;
+    }
+
+    // If no conversationId in URL, redirect to conversations list
+    if (!conversationIdFromUrl) {
+      logger.debug('No conversationId in URL, redirecting to conversations list');
+      navigate('/conversations');
+      return;
+    }
+
+    const loadConversation = async (): Promise<void> => {
+      if (isInitializingRef.current) {
+        logger.debug('Conversation loading already in progress');
+        return;
+      }
+
+      try {
+        isInitializingRef.current = true;
+        setIsInitializing(true);
+        
+        // Load conversation from URL
+        const response = await getConversation(conversationIdFromUrl);
+        if (response.success && response.data) {
+          setConversationId(response.data.id);
+          setSessionId(response.data.id);
+          
+          // Load existing messages
+          await loadMessageHistory(response.data.id);
+          hasInitializedRef.current = true;
+        } else {
+          // Conversation not found, redirect to conversations list
+          logger.warn('Conversation not found', { id: conversationIdFromUrl });
+          setError('Conversation not found');
+          navigate('/conversations');
+        }
+      } catch (err) {
+        logger.error('Error loading conversation', err instanceof Error ? err : { error: String(err) });
+        setError(err instanceof Error ? err.message : 'Failed to load conversation');
+        hasInitializedRef.current = false; // Allow retry on error
+      } finally {
+        isInitializingRef.current = false;
+        setIsInitializing(false);
+      }
+    };
+
+    const loadMessageHistory = async (convId: string): Promise<void> => {
+      try {
+        const response = await getConversationMessages(convId);
+        if (response.success && response.data?.messages) {
+          // Clear existing messages
+          clearConversation();
+          
+          // Load messages with chunks
+          response.data.messages.forEach((msg: MessageWithChunks) => {
+            if (msg.role === 'user') {
+              // Add user message
+              addMessage({
+                role: 'user',
+                content: msg.content,
+              });
+            } else if (msg.role === 'assistant' && msg.chunks) {
+              // Add assistant message chunks
+              msg.chunks.forEach((chunk) => {
+                const displayText = chunk.icon ? `${chunk.icon} ${chunk.text}` : chunk.text;
+                const messageId = addMessage({
+                  role: 'assistant',
+                  content: displayText,
+                  ...(chunk.icon && { icon: chunk.icon }),
+                  ttsStatus: chunk.ttsStatus || 'completed',
+                  ...(chunk.audioFileId && { audioFileId: chunk.audioFileId }),
+                  ...(chunk.audioDuration !== undefined && { duration: chunk.audioDuration }),
+                });
+                
+                // Map chunk ID to message ID for future updates
+                if (chunk.id) {
+                  chunkMessageMapRef.current.set(chunk.id, messageId);
+                }
+              });
+            }
+          });
+          
+          logger.info('Message history loaded', { 
+            messageCount: response.data.messages.length 
+          });
+        }
+      } catch (err) {
+        logger.error('Error loading message history', err instanceof Error ? err : { error: String(err) });
+        // Don't throw - allow conversation to continue without history
+      }
+    };
+
+    if (user) {
+      void loadConversation();
+    }
+
+    // Reset initialization flag when conversationIdFromUrl changes
+    return () => {
+      // Only reset if conversationIdFromUrl actually changed
+      // This allows re-initialization when navigating to a different conversation
+      if (conversationIdFromUrl !== conversationId) {
+        hasInitializedRef.current = false;
+      }
+      isInitializingRef.current = false;
+    };
+  }, [conversationIdFromUrl, user, conversationId, navigate]); // Only load, never create
+
+  // Initialize WebSocket and event subscriptions
+  useEffect(() => {
+    if (!conversationId || isInitializing) {
+      // Clean up any existing connection if conversationId is not ready
+      if (wsServiceRef.current) {
+        logger.info('Cleaning up WebSocket - conversation not ready');
+        // Don't disconnect here - just clear the ref, let cleanup handle it
+        wsServiceRef.current = null;
+      }
       return;
     }
 
     const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:11200';
-    const currentConversationId = sessionId ?? `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    logger.info(`Initializing WebSocket for conversation ${conversationId}`);
     
-    if (!sessionId) {
-      setSessionId(currentConversationId);
-    }
+    // Set conversation start time for timeline tracking
+    setConversationStartTime();
+    
+    const wsService = new WebSocketRxService({
+      baseUrl: apiUrl,
+      conversationId,
+      maxReconnectAttempts: 5,
+      reconnectDelay: 1000,
+    });
+    wsServiceRef.current = wsService;
 
-    logger.info(`Initializing WebSocket for conversation ${currentConversationId}`);
-    const ws = new WebSocketService(apiUrl, currentConversationId);
-    wsRef.current = ws;
-
-    // Setup event handlers
-    ws.on('connected', () => {
-      logger.info('WebSocket connected event received');
-      setWsConnected(true);
+    // Subscribe to WebSocket connection state
+    const connectionSub = wsService.connectionState$.subscribe(state => {
+      setWsConnected(state === 'open');
+      logger.debug('WebSocket state changed', { state });
     });
 
-    ws.on('conversation-start', (message: WebSocketMessage) => {
-      logger.info('Conversation started via WebSocket', message);
-      const data = message.data as { chunks: Array<{ id?: string; text: string; icon?: string; emotion?: string; ttsStatus?: string }> };
-      
-      if (data.chunks) {
-        // Don't clear the map - we might have existing mappings
-        // Only clear if this is a new conversation (no existing messages for these chunks)
-        const existingChunkIds = Array.from(chunkMessageMapRef.current.keys());
-        const newChunkIds = data.chunks.map(c => c.id).filter(Boolean) as string[];
-        const hasOverlap = newChunkIds.some(id => existingChunkIds.includes(id));
-        
-        if (!hasOverlap) {
-          chunkMessageMapRef.current.clear();
-          logger.info('Cleared chunk mapping for new conversation');
-        }
-        
-        logger.info(`Received ${data.chunks.length} chunks in conversation-start`, { 
-          chunkIds: data.chunks.map(c => c.id),
-          existingMappings: existingChunkIds.length
+    // Subscribe to WebSocket errors
+    const errorSub = wsService.errors$.subscribe(err => {
+      logger.error('WebSocket error', err);
+      setError(err.message);
+    });
+
+    // Connect WebSocket
+    const connectSub = wsService.connect().subscribe({
+      next: () => {
+        logger.info('WebSocket connected successfully');
+      },
+      error: (err) => {
+        logger.error('Failed to connect WebSocket', err);
+        setError(err.message);
+      },
+    });
+
+    // Subscribe to conversation:started events
+    const conversationStartSub = eventBus.onConversation<{
+      messageId: string;
+      chunksCount?: number;
+      metadata?: unknown;
+      source?: string;
+    }>('conversation:started', conversationId).pipe(
+      tap(event => {
+        logger.info('Conversation started via event bus', {
+          type: event.type,
+          conversationId: event.conversationId,
+          timestamp: event.timestamp,
+          data: event.data,
+        });
+        // Reset audio queue for new conversation to ensure correct ordering
+        audioQueueService.reset();
+        logger.info('Audio queue reset for new conversation');
+        // Note: chunks are not included in conversation:started event
+        // They will be added via chunk:created events
+      })
+    ).subscribe();
+
+    // Subscribe to chunk:created events to populate the chunk message map
+    const chunkCreatedSub = eventBus.onConversation<{
+      chunkIndex: number;
+      chunk: {
+        id?: string;
+        text?: string;
+        icon?: string;
+        emotion?: string;
+        ttsStatus?: string;
+      };
+    }>('chunk:created', conversationId).pipe(
+      tap(event => {
+        logger.info('Received chunk:created event', { 
+          eventType: event.type,
+          conversationId: event.conversationId,
+          chunkId: (event.data as any)?.chunk?.id
         });
         
-        data.chunks.forEach((chunk) => {
-          const displayText = chunk.icon ? `${chunk.icon} ${chunk.text}` : chunk.text;
-          
-          // Check if we already have a mapping for this chunk
-          let messageId = chunk.id ? chunkMessageMapRef.current.get(chunk.id) : undefined;
-          
-          if (!messageId) {
-            // Add message to store first - it will generate the ID
-            const actualMessageId = addMessage({
+        const data = event.data as {
+          chunkIndex: number;
+          chunk: {
+            id?: string;
+            text?: string;
+            icon?: string;
+            emotion?: string;
+            ttsStatus?: string;
+          };
+        };
+        
+        if (data?.chunk?.id && data?.chunk?.text) {
+          // Check if we already have this chunk mapped
+          if (!chunkMessageMapRef.current.has(data.chunk.id)) {
+            const displayText = data.chunk.icon ? `${data.chunk.icon} ${data.chunk.text}` : data.chunk.text;
+            
+            const messageId = addMessage({
               role: 'assistant',
               content: displayText,
-              ...(chunk.icon && { icon: chunk.icon }),
-              ttsStatus: (chunk.ttsStatus as 'pending' | 'processing' | 'completed' | 'failed') || 'pending',
+              ...(data.chunk.icon && { icon: data.chunk.icon }),
+              ttsStatus: (data.chunk.ttsStatus as 'pending' | 'processing' | 'completed' | 'failed') || 'pending',
             });
             
-            // Use the actual ID returned from addMessage for mapping
-            messageId = actualMessageId;
+            chunkMessageMapRef.current.set(data.chunk.id, messageId);
             
-            if (chunk.id) {
-              chunkMessageMapRef.current.set(chunk.id, messageId);
-              logger.debug(`Mapped chunk ${chunk.id} to message ${messageId}`);
-            } else {
-              logger.warn('Chunk missing ID in conversation-start', chunk);
-            }
-            
-            // Verify the message was added with the correct ID
-            setTimeout(() => {
-              const messages = useConversationStore.getState().messages;
-              const addedMsg = messages.find(m => m.id === messageId);
-              if (addedMsg) {
-                logger.debug(`Verified message ${messageId} added to store for chunk ${chunk.id}`);
-              } else {
-                logger.error(`Message ${messageId} NOT found in store after addMessage! Available IDs:`, 
-                  messages.map(m => m.id));
-              }
-            }, 50);
-          } else {
-            // Update existing message
-            logger.debug(`Updating existing message ${messageId} for chunk ${chunk.id}`);
-            updateMessage(messageId, {
-              content: displayText,
-              ...(chunk.icon && { icon: chunk.icon }),
-              ttsStatus: (chunk.ttsStatus as 'pending' | 'processing' | 'completed' | 'failed') || 'pending',
-            });
-          }
-        });
-      }
-    });
-
-    ws.on('chunk-update', (message: WebSocketMessage) => {
-      logger.debug('Chunk update received', message);
-      const data = message.data as { chunkIndex: number; chunk: { id?: string; audioFileId?: string; duration?: number; ttsStatus?: string; ttsError?: string; pause?: number } };
-      
-      if (data.chunk?.id) {
-        const messageId = chunkMessageMapRef.current.get(data.chunk.id);
-        if (messageId) {
-          logger.info(`Updating message ${messageId} for chunk ${data.chunk.id}`, { 
-            ttsStatus: data.chunk.ttsStatus, 
-            hasAudio: !!data.chunk.audioFileId,
-            duration: data.chunk.duration
-          });
-          
-          const updates = {
-            ttsStatus: (data.chunk.ttsStatus as 'pending' | 'processing' | 'completed' | 'failed') || 'pending',
-            ...(data.chunk.audioFileId && { audioFileId: data.chunk.audioFileId }),
-            ...(data.chunk.duration !== undefined && { duration: data.chunk.duration }),
-          };
-          
-          logger.debug(`Calling updateMessage with:`, { messageId, updates });
-          updateMessage(messageId, updates);
-          
-          // Verify update worked (for debugging)
-          const messages = useConversationStore.getState().messages;
-          const updatedMsg = messages.find(m => m.id === messageId);
-          if (updatedMsg) {
-            logger.debug(`Message ${messageId} updated successfully`, { 
-              ttsStatus: updatedMsg.ttsStatus,
-              audioFileId: updatedMsg.audioFileId 
+            logger.info('Created message for chunk', { 
+              chunkId: data.chunk.id,
+              messageId,
+              chunkMapSize: chunkMessageMapRef.current.size
             });
           } else {
-            logger.error(`Message ${messageId} not found after update!`);
-          }
-
-          // RECEIVED AUDIO EVENT: Chunk completed with audio
-          // Just queue it and pre-fetch - don't start playback here
-          if (data.chunk.ttsStatus === 'completed' && data.chunk.audioFileId) {
-            const alreadyQueued = speakerQueueRef.current.some(item => item.messageId === messageId);
-            if (!alreadyQueued) {
-              logger.info(`📥 Received audio for chunk ${data.chunk.id} (message ${messageId}, audioFileId: ${data.chunk.audioFileId})`);
-              
-              // Get metadata from chunk
-              const pause = data.chunk.pause ?? 0.5;
-              const speakerId = selectedVoice || 'default'; // Use selected voice as speaker ID
-              
-              // Create queue item (audio will be fetched in background)
-              const queueItem = {
-                messageId,
-                audioFileId: data.chunk.audioFileId,
-                pause,
-                speakerId,
-                ...(data.chunk.duration !== undefined && { duration: data.chunk.duration }),
-              };
-              
-              // Push to speaker queue
-              speakerQueueRef.current.push(queueItem);
-              
-              // Pre-fetch audio in background (non-blocking, event-driven)
-              const audioFileId = data.chunk.audioFileId;
-              if (audioFileId) {
-                void (async () => {
-                  try {
-                    logger.debug(`📥 Pre-fetching audio file ${audioFileId}...`);
-                    const audioBlob = await getAudioFile(audioFileId);
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    
-                    // Cache the audio
-                    audioCacheRef.current.set(audioFileId, { blob: audioBlob, url: audioUrl });
-                    
-                    // Update queue item with pre-fetched audio
-                    const queueItemIndex = speakerQueueRef.current.findIndex(item => item.messageId === messageId);
-                    if (queueItemIndex !== -1) {
-                      speakerQueueRef.current[queueItemIndex] = {
-                        ...speakerQueueRef.current[queueItemIndex]!,
-                        audioBlob,
-                        audioUrl,
-                      };
-                    }
-                    
-                    logger.info(`✅ Audio pre-fetched for chunk ${data.chunk.id} (message ${messageId})`);
-                    
-                    // Wake up speaker queue processor (if not already running)
-                    wakeUpSpeakerQueue();
-                  } catch (error) {
-                    logger.error(`❌ Failed to pre-fetch audio for chunk ${data.chunk.id}:`, error);
-                  }
-                })();
-              }
-              
-              // Wake up speaker queue processor
-              wakeUpSpeakerQueue();
-            } else {
-              logger.warn(`Audio already queued for chunk ${data.chunk.id}, skipping`);
-            }
+            logger.debug('Chunk already mapped', { 
+              chunkId: data.chunk.id,
+              messageId: chunkMessageMapRef.current.get(data.chunk.id)
+            });
           }
         } else {
-          logger.warn(`No message ID found for chunk ${data.chunk.id}`, { 
-            availableChunkIds: Array.from(chunkMessageMapRef.current.keys()) 
+          logger.warn('chunk:created event missing required fields', { 
+            hasChunkId: !!data?.chunk?.id,
+            hasText: !!data?.chunk?.text
           });
         }
-      } else {
-        logger.warn('Chunk update missing chunk ID', data);
-      }
-    });
+      })
+    ).subscribe();
 
-    ws.on('chunk-complete', (message: WebSocketMessage) => {
-      logger.debug('Chunk complete', message);
-      const data = message.data as { chunkIndex: number; chunk: { id?: string; audioFileId?: string; duration?: number; ttsStatus?: string; pause?: number } };
-      
-      // Handle chunk-complete (same as chunk-update, but only queue audio if not already queued)
-      if (data.chunk?.id) {
-        const messageId = chunkMessageMapRef.current.get(data.chunk.id);
-        if (messageId) {
-          updateMessage(messageId, {
-            ttsStatus: (data.chunk.ttsStatus as 'pending' | 'processing' | 'completed' | 'failed') || 'pending',
-            ...(data.chunk.audioFileId && { audioFileId: data.chunk.audioFileId }),
-            ...(data.chunk.duration !== undefined && { duration: data.chunk.duration }),
+    // Subscribe to chunk:tts-completed events
+    const chunkCompleteSub = eventBus.onConversation<{
+      chunkIndex: number;
+      chunk: {
+        id?: string;
+        audioFileId?: string;
+        duration?: number;
+        pause?: number;
+        ttsStatus?: string;
+        text?: string;
+        emotion?: string;
+        icon?: string;
+        emphasis?: boolean;
+        audioUrl?: string;
+        ttsError?: string;
+      };
+    }>('chunk:tts-completed', conversationId).pipe(
+      tap(event => {
+        logger.info('Received chunk:tts-completed event', { 
+          eventType: event.type,
+          conversationId: event.conversationId,
+          data: JSON.stringify(event.data, null, 2)
+        });
+        
+        const data = event.data as {
+          chunkIndex: number;
+          chunk: {
+            id?: string;
+            audioFileId?: string;
+            duration?: number;
+            pause?: number;
+            ttsStatus?: string;
+          };
+        };
+        
+        if (data?.chunk?.id) {
+          const messageId = chunkMessageMapRef.current.get(data.chunk.id);
+          logger.debug('Looking up message for chunk', { 
+            chunkId: data.chunk.id, 
+            messageId,
+            chunkMapSize: chunkMessageMapRef.current.size,
+            allChunkIds: Array.from(chunkMessageMapRef.current.keys())
           });
+          
+          if (messageId) {
+            logger.info('Updating message with TTS completion', { 
+              messageId,
+              audioFileId: data.chunk.audioFileId,
+              duration: data.chunk.duration 
+            });
+            
+            updateMessage(messageId, {
+              ttsStatus: (data.chunk.ttsStatus as 'pending' | 'processing' | 'completed' | 'failed') || 'completed',
+              ...(data.chunk.audioFileId && { audioFileId: data.chunk.audioFileId }),
+              ...(data.chunk.duration !== undefined && { duration: data.chunk.duration }),
+            });
 
-          // RECEIVED AUDIO EVENT: Same as chunk-update handler
-          if (data.chunk.ttsStatus === 'completed' && data.chunk.audioFileId) {
-            const alreadyQueued = speakerQueueRef.current.some(item => item.messageId === messageId);
-            if (!alreadyQueued) {
-              logger.info(`📥 Received audio for chunk ${data.chunk.id} (message ${messageId}, audioFileId: ${data.chunk.audioFileId})`);
-              
-              const pause = data.chunk.pause ?? 0.5;
-              const speakerId = selectedVoice || 'default';
-              
-              speakerQueueRef.current.push({
+            // Queue audio for playback (audio data comes from WebSocket)
+            if (data.chunk.ttsStatus === 'completed' || !data.chunk.ttsStatus) {
+              const chunkData = data.chunk as any; // Type assertion for audioData
+              logger.info('Queueing audio for playback', { 
                 messageId,
-                audioFileId: data.chunk.audioFileId,
-                pause,
-                speakerId,
-                ...(data.chunk.duration !== undefined && { duration: data.chunk.duration }),
+                audioFileId: chunkData.audioFileId,
+                hasAudioData: !!chunkData.audioData 
               });
               
-              // Pre-fetch and wake up queue
-              const audioFileId = data.chunk.audioFileId;
-              if (audioFileId) {
-                void (async () => {
-                  try {
-                    const audioBlob = await getAudioFile(audioFileId);
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    audioCacheRef.current.set(audioFileId, { blob: audioBlob, url: audioUrl });
-                    
-                    const queueItemIndex = speakerQueueRef.current.findIndex(item => item.messageId === messageId);
-                    if (queueItemIndex !== -1) {
-                      speakerQueueRef.current[queueItemIndex] = {
-                        ...speakerQueueRef.current[queueItemIndex]!,
-                        audioBlob,
-                        audioUrl,
-                      };
-                    }
-                    wakeUpSpeakerQueue();
-                  } catch (error) {
-                    logger.error(`❌ Failed to pre-fetch audio:`, error);
-                  }
-                })();
-              }
-              
-              wakeUpSpeakerQueue();
+              audioQueueService.queue({
+                messageId,
+                chunkIndex: data.chunkIndex, // Add chunkIndex for ordering
+                ...(chunkData.audioFileId && { audioFileId: chunkData.audioFileId }),
+                ...(chunkData.audioData && { audioData: chunkData.audioData }),
+                pause: chunkData.pause ?? 0.5,
+                speakerId: selectedVoice || 'default',
+                ...(chunkData.duration !== undefined && { duration: chunkData.duration }),
+                onPlayStart: () => {
+                  setPlayingMessageId(messageId);
+                },
+                onPlayEnd: () => {
+                  setPlayingMessageId(null);
+                },
+              });
             }
+          } else {
+            logger.warn('No message found for chunk', { 
+              chunkId: data.chunk.id,
+              availableChunkIds: Array.from(chunkMessageMapRef.current.keys())
+            });
           }
-        }
-      }
-    });
-
-    ws.on('chunk-failed', (message: WebSocketMessage) => {
-      logger.warn('Chunk failed', message);
-      const data = message.data as { chunkIndex: number; chunk: { id?: string; ttsError?: string } };
-      
-      if (data.chunk?.id) {
-        const messageId = chunkMessageMapRef.current.get(data.chunk.id);
-        if (messageId) {
-          updateMessage(messageId, {
-            ttsStatus: 'failed',
+        } else {
+          logger.warn('chunk:tts-completed event missing chunk.id', { 
+            data: JSON.stringify(data, null, 2),
+            hasData: !!data,
+            hasChunk: !!data?.chunk,
+            chunkId: data?.chunk?.id
           });
         }
-      }
+      })
+    ).subscribe();
+
+    // Subscribe to chunk:tts-failed events
+    const chunkFailedSub = eventBus.onConversation<{
+      chunkIndex: number;
+      chunk: {
+        id?: string;
+        ttsError?: string;
+      };
+    }>('chunk:tts-failed', conversationId).pipe(
+      tap(event => {
+        const data = event.data;
+        if (data.chunk?.id) {
+          const messageId = chunkMessageMapRef.current.get(data.chunk.id);
+          if (messageId) {
+            updateMessage(messageId, {
+              ttsStatus: 'failed',
+            });
+          }
+        }
+      })
+    ).subscribe();
+
+    // Subscribe to audio:ready events
+    const audioReadySub = eventBus.onConversation<{
+      chunkIndex: number;
+      chunkId: string;
+      audioFileId: string;
+      duration?: number;
+    }>('audio:ready', conversationId).pipe(
+      tap(event => {
+        const data = event.data;
+        const messageId = chunkMessageMapRef.current.get(data.chunkId);
+        if (messageId) {
+          updateMessage(messageId, {
+            audioFileId: data.audioFileId,
+            ...(data.duration !== undefined && { duration: data.duration }),
+          });
+        }
+      })
+    ).subscribe();
+
+    // Start audio queue processing
+    const audioQueueSub = audioQueueService.start().subscribe({
+      error: (err) => {
+        logger.error('Audio queue error', err);
+      },
     });
 
-    // Connect to WebSocket with retry
-    const connectWithRetry = async () => {
-      try {
-        await ws.connect();
-        logger.info('WebSocket connected successfully');
-      } catch (err) {
-        logger.error('Failed to connect WebSocket', err);
-        setWsConnected(false);
-        // Show user-friendly error
-        const errorMessage = err instanceof Error ? err.message : 'Failed to connect to server';
-        if (errorMessage.includes('server running')) {
-          logger.warn('WebSocket server may not be running. Please check backend server.');
-        }
-      }
-    };
-    
-    // Small delay to ensure component is mounted
-    const connectTimeout = setTimeout(() => {
-      connectWithRetry();
-    }, 100);
+    // Store all subscriptions
+    subscriptionsRef.current = [
+      connectionSub,
+      errorSub,
+      connectSub,
+      conversationStartSub,
+      chunkCreatedSub,
+      chunkCompleteSub,
+      chunkFailedSub,
+      audioReadySub,
+      audioQueueSub,
+    ];
 
-    // Cleanup on unmount
+    // Cleanup on unmount or dependency change
     return () => {
-      clearTimeout(connectTimeout);
-      logger.info('Cleaning up WebSocket connection');
-      ws.disconnect();
-      wsRef.current = null;
+      logger.info('Cleaning up WebSocket and subscriptions');
+      
+      // Clear conversation start time
+      clearConversationStartTime();
+      
+      // Unsubscribe from all RxJS subscriptions
+      subscriptionsRef.current.forEach(sub => {
+        if (!sub.closed) {
+          sub.unsubscribe();
+        }
+      });
+      subscriptionsRef.current = [];
+      
+      // Disconnect WebSocket if it exists
+      if (wsServiceRef.current) {
+        // Check WebSocket state before disconnecting
+        const ws = (wsServiceRef.current as any).ws;
+        if (ws) {
+          const readyState = ws.readyState;
+          if (readyState === WebSocket.CONNECTING || readyState === WebSocket.OPEN) {
+            // Only disconnect if actually connected or connecting
+            // Set handlers to null to prevent error logging
+            ws.onclose = null;
+            ws.onerror = null;
+            wsServiceRef.current.disconnect();
+          }
+        }
+        wsServiceRef.current = null;
+      }
+      
+      // Clear audio cache
+      audioQueueService.clearCache();
     };
-  }, [sessionId]); // Only depend on sessionId to prevent multiple connections
+  }, [conversationId, isInitializing]); // Only depend on conversationId and isInitializing - store functions are stable
 
-  // SPEAKER QUEUE EVENT: Wake up processor
-  // This is called when new audio is added to the queue
-  const wakeUpSpeakerQueue = () => {
-    if (!isQueueProcessorActiveRef.current) {
-      logger.debug('🔔 Waking up speaker queue processor');
-      isQueueProcessorActiveRef.current = true;
-      void processSpeakerQueue();
-    }
-  };
+  // Handle send message
+  const handleSendMessage = async (): Promise<void> => {
+    if (!inputText.trim() || isLoading) return;
 
-  // SPEAKER QUEUE EVENT: Process queue
-  // This runs independently, processing one item at a time
-  // Sleeps when queue is empty, wakes up when new audio is added
-  const processSpeakerQueue = async () => {
-    // If already playing, wait for current playback to finish
-    if (isPlayingRef.current) {
-      logger.debug('⏸️ Speaker queue: Already playing, waiting...');
-      // Check again after a short delay
-      setTimeout(() => {
-        if (speakerQueueRef.current.length > 0) {
-          void processSpeakerQueue();
-        } else {
-          isQueueProcessorActiveRef.current = false;
-        }
-      }, 100);
-      return;
-    }
-
-    // If queue is empty, sleep
-    if (speakerQueueRef.current.length === 0) {
-      logger.debug('😴 Speaker queue: Empty, going to sleep');
-      isQueueProcessorActiveRef.current = false;
-      return;
-    }
-
-    // Get first item from queue (matching current speaker if needed)
-    // For now, just get first item (future: filter by speakerId)
-    const item = speakerQueueRef.current.shift();
-    if (!item) {
-      isQueueProcessorActiveRef.current = false;
-      return;
-    }
-
-    // Mark as playing
-    isPlayingRef.current = true;
-
-    try {
-      const currentMessageId = item.messageId;
-      logger.info(`🎵 Speaker queue: Processing audio for message ${currentMessageId} (audioFileId: ${item.audioFileId})`);
-      
-      // Update play audio indicator
-      setPlayingChunkId(currentMessageId);
-      updateMessage(currentMessageId, { isPlaying: true });
-
-      // Get audio URL - check pre-fetched, cache, or wait for pre-fetch
-      let audioUrl: string | undefined;
-      let needsCleanup = false;
-      
-      if (item.audioUrl && item.audioBlob) {
-        // Fast path: pre-fetched and ready
-        logger.info(`✅ Using pre-fetched audio from queue for message ${currentMessageId}`);
-        audioUrl = item.audioUrl;
-      } else {
-        // Check cache
-        let cached = audioCacheRef.current.get(item.audioFileId);
-        if (cached) {
-          logger.info(`✅ Using cached audio for message ${currentMessageId}`);
-          audioUrl = cached.url;
-        } else {
-          // Wait for pre-fetch to complete (non-blocking wait)
-          logger.info(`⏳ Waiting for audio pre-fetch for message ${currentMessageId} (max 1.5s)...`);
-          const maxWaitTime = 1500;
-          const checkInterval = 50;
-          let waited = 0;
-          let found = false;
-          
-          while (waited < maxWaitTime && !found) {
-            cached = audioCacheRef.current.get(item.audioFileId);
-            if (cached) {
-              logger.info(`✅ Audio pre-fetched after ${waited}ms for message ${currentMessageId}`);
-              audioUrl = cached.url;
-              found = true;
-              break;
-            }
-            await new Promise(resolve => setTimeout(resolve, checkInterval));
-            waited += checkInterval;
-          }
-          
-          // Fallback: fetch now if still not ready
-          if (!found) {
-            logger.warn(`⚠️ Audio not ready after ${waited}ms, fetching for message ${currentMessageId}...`);
-            const audioBlob = await getAudioFile(item.audioFileId);
-            audioUrl = URL.createObjectURL(audioBlob);
-            needsCleanup = true;
-          }
-        }
-      }
-      
-      // Ensure audioUrl is set
-      if (!audioUrl) {
-        throw new Error(`Failed to get audio URL for message ${currentMessageId}`);
-      }
-      
-      // Start play audio
-      logger.info(`▶️ Starting audio playback for message ${currentMessageId}`);
-      await playAudio(audioUrl);
-
-      // Cleanup
-      if (needsCleanup) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      audioCacheRef.current.delete(item.audioFileId);
-
-      // Update indicator
-      updateMessage(currentMessageId, { isPlaying: false });
-      logger.info(`✅ Finished playback for message ${currentMessageId}`);
-
-      // Wait for pause duration
-      if (item.pause && item.pause > 0) {
-        await new Promise((resolve) => setTimeout(resolve, item.pause! * 1000));
-      }
-    } catch (audioError) {
-      logger.error('❌ Audio playback error', audioError);
-      updateMessage(item.messageId, { ttsStatus: 'failed' });
-    } finally {
-      // Mark as not playing
-      setPlayingChunkId(null);
-      isPlayingRef.current = false;
-
-      // Loop: Process next item in queue (if available)
-      if (speakerQueueRef.current.length > 0) {
-        // Continue processing queue
-        setTimeout(() => {
-          void processSpeakerQueue();
-        }, 0);
-      } else {
-        // Queue empty - sleep
-        logger.debug('😴 Speaker queue: All audio played, going to sleep');
-        isQueueProcessorActiveRef.current = false;
-      }
-    }
-  };
-
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim() || isLoading) return;
-
-    // Add user message
-    addMessage({ role: 'user', content: text });
-
+    const userMessage = inputText.trim();
+    setInputText('');
     setLoading(true);
     setError(null);
 
+    // Add user message
+    addMessage({
+      role: 'user',
+      content: userMessage,
+    });
+
+    if (!conversationId) {
+      setError('Conversation not initialized');
+      return;
+    }
+
     try {
-      const currentConversationId = sessionId ?? `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      if (!sessionId) {
-        setSessionId(currentConversationId);
-      }
-
-      // Get response from Ollama with WebSocket mode
-      const response = await chatWithTutor({
-        message: text,
-        conversationHistory: messages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        })),
-        usePipeline: true,
-        voice: selectedVoice || 'Ana Florence',
-        conversationId: currentConversationId,
-        useWebSocket: true, // Use WebSocket for real-time updates
-      });
-
-      if (response.success && response.data) {
-        // If using WebSocket, chunks will arrive via WebSocket events
-        // Just wait for the initial response
-        if ((response.data as { conversationId?: string }).conversationId) {
-          logger.info('Conversation started, waiting for WebSocket events');
-          // Chunks will be added via WebSocket events
-        } else if (response.data.chunks && response.data.chunks.length > 0) {
-          // Fallback: HTTP mode (chunks in response)
-          const chunks = response.data.chunks;
-          chunks.forEach((chunk) => {
-            const displayText = chunk.icon ? `${chunk.icon} ${chunk.text}` : chunk.text;
-            addMessage({
-              role: 'assistant',
-              content: displayText,
-              ...(chunk.icon && { icon: chunk.icon }),
-              ttsStatus: chunk.ttsStatus || 'pending',
-              ...(chunk.audioFileId && { audioFileId: chunk.audioFileId }),
-              ...(chunk.duration !== undefined && { duration: chunk.duration }),
-            });
-          });
-        } else if (response.data.response) {
-          // Legacy mode: full response
-          addMessage({ role: 'assistant', content: response.data.response });
+      await retry(
+        () => chatWithTutor({
+          message: userMessage,
+          conversationId,
+          useWebSocket: true,
+          voice: selectedVoice,
+        }),
+        {
+          maxRetries: 2,
+          retryDelay: 1000,
         }
-      } else {
-        setError(response.error ?? 'Failed to get response');
-      }
+      );
+
+      logger.info('Message sent successfully');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      logger.error('Failed to send message', err instanceof Error ? err : { error: String(err) });
+      setError(formatErrorMessage(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVoiceInput = async () => {
+  // Handle voice input
+  const handleVoiceInput = async (): Promise<void> => {
     if (isRecording) {
-      // Stop recording
       try {
         const audioBlob = await stopRecording();
+        const response = await transcribeAudio({ audio: audioBlob });
         
-        setLoading(true);
-        setError(null);
-
-        // Transcribe audio
-        const sttResponse = await transcribeAudio({
-          audio: audioBlob,
-          language: 'en',
-        });
-
-        if (sttResponse.success && sttResponse.data?.text) {
-          const transcribedText = sttResponse.data.text;
-          // Send transcribed text as message
-          await handleSendMessage(transcribedText);
-        } else {
-          setError(sttResponse.error ?? 'Failed to transcribe audio');
-          setLoading(false);
+        if (response.success && response.data?.text) {
+          setInputText(response.data.text);
+          await handleSendMessage();
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to process audio');
-        setLoading(false);
+        logger.error('Voice input error', err instanceof Error ? err : { error: String(err) });
+        setError(formatErrorMessage(err));
       }
     } else {
-      // Start recording
       try {
         await startRecording();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to start recording');
+        logger.error('Failed to start recording', err instanceof Error ? err : { error: String(err) });
+        setError(formatErrorMessage(err));
       }
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputText.trim()) {
-      handleSendMessage(inputText);
-      setInputText('');
     }
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-12rem)] bg-white rounded-lg shadow">
-      {/* WebSocket Status Indicator */}
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm">
-          {wsConnected ? (
-            <>
-              <Wifi className="h-4 w-4 text-green-600" />
-              <span className="text-green-600">Real-time connected</span>
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-4 w-4 text-gray-400" />
-              <span className="text-gray-400">Connecting...</span>
-            </>
-          )}
-        </div>
-        {sessionId && (
-          <span className="text-xs text-gray-500">Session: {sessionId.substring(0, 8)}...</span>
-        )}
-      </div>
-
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {messages.length === 0 ? (
-          <div className="text-center text-gray-500 mt-8">
-            <p className="text-lg mb-2">Start a conversation</p>
-            <p className="text-sm">Type a message or use voice input to begin</p>
-          </div>
-        ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} ${
-                message.role === 'assistant' && message.isPlaying && playingChunkId === message.id ? 'ring-2 ring-purple-400 rounded-lg' : ''
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-900'
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <p className="whitespace-pre-wrap flex-1">{message.content}</p>
-                  {message.role === 'assistant' && (
-                    <div className="flex flex-col items-center gap-1 mt-1 min-w-[80px]">
-                      {/* TTS Status Indicator */}
-                      {message.ttsStatus === 'pending' && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500" title="Audio pending">
-                          <VolumeX className="h-3 w-3" />
-                          <span>Pending</span>
-                        </div>
-                      )}
-                      {message.ttsStatus === 'processing' && (
-                        <div className="flex items-center gap-1 text-xs text-blue-600" title="Generating audio...">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>Generating</span>
-                        </div>
-                      )}
-                      {message.ttsStatus === 'completed' && !message.isPlaying && (
-                        <div className="flex items-center gap-1 text-xs text-green-600" title="Audio ready">
-                          <Volume2 className="h-3 w-3" />
-                          <span>Ready</span>
-                        </div>
-                      )}
-                      {message.isPlaying && (
-                        <div className="flex items-center gap-1 text-xs text-purple-600 animate-pulse" title="Playing audio">
-                          <Volume2 className="h-3 w-3" />
-                          <span>Playing</span>
-                        </div>
-                      )}
-                      {message.ttsStatus === 'failed' && (
-                        <div className="flex items-center gap-1 text-xs text-red-600" title="Audio generation failed">
-                          <VolumeX className="h-3 w-3" />
-                          <span>Failed</span>
-                        </div>
-                      )}
-                      {/* Duration indicator */}
-                      {message.duration && message.ttsStatus === 'completed' && (
-                        <span className="text-xs text-gray-400">
-                          {message.duration.toFixed(1)}s
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs mt-1 opacity-70">
-                  {message.timestamp.toLocaleTimeString()}
-                </p>
-              </div>
-            </div>
-          ))
-        )}
-
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-200 rounded-lg px-4 py-2">
-              <div className="flex space-x-1">
-                <div className="h-2 w-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="h-2 w-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="h-2 w-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-red-700">
-            <p className="text-sm">{error}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Input Area */}
-      <div className="border-t border-gray-200 p-4">
-        <form onSubmit={handleSubmit} className="flex space-x-2">
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Header */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-4">
           <button
-            type="button"
+            onClick={() => navigate('/conversations')}
+            className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+          >
+            ← Back
+          </button>
+          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">English Tutor</h1>
+        </div>
+        <div className="flex items-center gap-3">
+          {isInitializing && (
+            <span className="text-sm text-gray-500 dark:text-gray-400">Initializing...</span>
+          )}
+          <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className="text-sm text-gray-600 dark:text-gray-300">
+            {wsConnected ? 'Connected' : 'Disconnected'}
+          </span>
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 bg-gray-50 dark:bg-gray-900">
+        {isInitializing ? (
+          <div className="text-center text-gray-500 dark:text-gray-400 mt-8">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+            <p>Loading conversation...</p>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="text-center text-gray-500 dark:text-gray-400 mt-8">
+            Start a conversation with your English tutor!
+          </div>
+        ) : null}
+
+        {messages.map((message) => (
+          <MessageBubble
+            key={message.id}
+            message={message}
+            isPlaying={playingMessageId === message.id}
+          />
+        ))}
+
+        {isLoading && <TypingIndicator />}
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="px-4 py-2 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 text-sm border-t border-red-200 dark:border-red-800">
+          <div className="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <button
             onClick={handleVoiceInput}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              isRecording
-                ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            className={`p-2 rounded-lg ${
+              isRecording ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
+          
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSendMessage();
+              }
+            }}
             placeholder="Type your message..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
             disabled={isLoading}
           />
+          
           <button
-            type="submit"
+            onClick={handleSendMessage}
             disabled={!inputText.trim() || isLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="h-5 w-5" />
+            <Send className="w-5 h-5" />
           </button>
-        </form>
-        <div className="mt-2 flex justify-between items-center text-xs text-gray-500">
-          <button
-            onClick={clearConversation}
-            className="hover:text-gray-700"
-          >
-            Clear conversation
-          </button>
-          <span>{isRecording ? 'Recording...' : 'Press mic to record'}</span>
         </div>
       </div>
     </div>

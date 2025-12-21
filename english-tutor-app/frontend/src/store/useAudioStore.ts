@@ -19,7 +19,7 @@ interface AudioState {
   setMediaRecorder: (recorder: MediaRecorder | null) => void;
   addRecordingChunk: (chunk: Blob) => void;
   clearRecordingChunks: () => void;
-  playAudio: (url: string) => Promise<void>;
+  playAudio: (url: string, messageId?: string) => Promise<void>;
   stopAudio: () => void;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<Blob>;
@@ -63,13 +63,19 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     set({ recordingChunks: [] });
   },
 
-  playAudio: async (url: string): Promise<void> => {
+  playAudio: async (url: string, _messageId?: string): Promise<void> => {
     return new Promise((resolve, reject) => {
-      const { audioElement, stopAudio } = get();
+      const state = get();
       
-      // Stop current audio if playing
-      if (audioElement) {
-        stopAudio();
+      // Stop and cleanup current audio if playing
+      if (state.audioElement) {
+        const currentAudio = state.audioElement;
+        // Remove all event listeners to prevent memory leaks
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio.src = '';
+        currentAudio.load();
+        set({ isPlaying: false, audioElement: null, currentAudioUrl: null });
       }
 
       const audio = new Audio(url);
@@ -78,59 +84,83 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       audio.preload = 'auto';
       
       let playbackStarted = false;
-      let playbackPromise: Promise<void> | null = null;
+      let isResolved = false;
       
-      audio.addEventListener('ended', () => {
-        set({ isPlaying: false, audioElement: null });
+      // Handle audio ended - this is when the Promise resolves
+      const handleEnded = () => {
+        if (isResolved) return;
+        isResolved = true;
+        console.log('✅ Audio playback ended', { url, messageId: _messageId });
+        set({ isPlaying: false, audioElement: null, currentAudioUrl: null });
+        // Cleanup
+        audio.removeEventListener('ended', handleEnded);
+        audio.removeEventListener('error', handleError);
+        audio.removeEventListener('canplay', handleCanPlay);
+        audio.removeEventListener('canplaythrough', handleCanPlayThrough);
         resolve();
-      });
+      };
 
-      audio.addEventListener('error', (error) => {
-        console.error('Audio playback error:', error);
-        set({ isPlaying: false, audioElement: null });
+      // Handle audio error
+      const handleError = (error: Event) => {
+        if (isResolved) return;
+        isResolved = true;
+        console.error('❌ Audio playback error:', error);
+        set({ isPlaying: false, audioElement: null, currentAudioUrl: null });
+        // Cleanup
+        audio.removeEventListener('ended', handleEnded);
+        audio.removeEventListener('error', handleError);
+        audio.removeEventListener('canplay', handleCanPlay);
+        audio.removeEventListener('canplaythrough', handleCanPlayThrough);
         reject(error);
-      });
+      };
 
       // Start playing as soon as we have enough data
       const startPlayback = async () => {
-        if (playbackStarted) return;
+        if (playbackStarted || isResolved) return;
         playbackStarted = true;
         
         try {
           set({ audioElement: audio, currentAudioUrl: url, isPlaying: true });
-          playbackPromise = audio.play();
-          await playbackPromise;
-          console.log('✅ Audio playback started successfully');
+          await audio.play();
+          console.log('✅ Audio playback started successfully', { url, messageId: _messageId });
         } catch (error) {
           console.error('❌ Error starting audio playback:', error);
-          set({ isPlaying: false, audioElement: null });
-          reject(error);
+          handleError(error as Event);
         }
       };
+
+      // Handle canplay event
+      const handleCanPlay = () => {
+        if (!playbackStarted && !isResolved) {
+          void startPlayback();
+        }
+      };
+
+      // Handle canplaythrough event
+      const handleCanPlayThrough = () => {
+        if (!playbackStarted && !isResolved) {
+          void startPlayback();
+        }
+      };
+
+      // Set up event listeners
+      audio.addEventListener('ended', handleEnded, { once: true });
+      audio.addEventListener('error', handleError, { once: true });
 
       // For blob URLs (which we use), the audio is ready immediately
       // Start playing right away without waiting for events
       if (url.startsWith('blob:')) {
         // Blob URLs are ready immediately - start playing right away
-        // Use a small timeout to ensure the audio element is ready
-        setTimeout(() => {
-          void startPlayback();
-        }, 0);
+        // Use requestAnimationFrame to ensure the audio element is ready
+        requestAnimationFrame(() => {
+          if (!isResolved) {
+            void startPlayback();
+          }
+        });
       } else {
         // For other URLs, wait for canplay or canplaythrough
-        // Try canplay first (fires earlier)
-        audio.addEventListener('canplay', () => {
-          if (!playbackStarted) {
-            void startPlayback();
-          }
-        }, { once: true });
-
-        // Also listen for canplaythrough (more reliable but fires later)
-        audio.addEventListener('canplaythrough', () => {
-          if (!playbackStarted) {
-            void startPlayback();
-          }
-        }, { once: true });
+        audio.addEventListener('canplay', handleCanPlay, { once: true });
+        audio.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
 
         // If audio is already loaded enough, play immediately
         if (audio.readyState >= 2) { // HAVE_CURRENT_DATA or higher

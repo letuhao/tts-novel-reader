@@ -8,6 +8,10 @@ import { getOllamaService } from '../services/ollama/ollamaService.js';
 import type { OllamaMessage } from '../types/index.js';
 import { createChildLogger } from '../utils/logger.js';
 import { PerformanceTimer } from '../utils/timing.js';
+import { conversationService } from '../services/conversation/conversationService.js';
+import { conversationManager } from '../services/conversation/conversationManager.js';
+import { eventBus } from '../services/conversation/eventBus.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 
 const router: Router = express.Router();
 const logger = createChildLogger({ component: 'ollama-routes' });
@@ -71,8 +75,10 @@ router.get('/health', async (_req: Request, res: Response): Promise<void> => {
  * POST /api/ollama/chat
  * Chat with English tutor
  * Uses structured response pipeline for better performance
+ * Integrates with ConversationService for persistence
+ * Requires authentication
  */
-router.post('/chat', async (req: Request, res: Response): Promise<void> => {
+router.post('/chat', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
     // Validate request
     const validationResult = ChatRequestSchema.safeParse(req.body);
@@ -94,13 +100,95 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
       useWebSocket?: boolean;
     };
 
+    // Get user ID from request (set by auth middleware)
+    const userId = req.userId;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+      });
+      return;
+    }
+
     const ollamaService = getOllamaService();
 
-    // Convert conversation history to OllamaMessage format
-    const history: OllamaMessage[] = conversationHistory.map((msg) => ({
-      role: msg.role as 'system' | 'user' | 'assistant',
-      content: msg.content,
-    }));
+    // Use conversation ID from request or create new conversation
+    let conversationId = requestConversationId;
+    if (!conversationId) {
+      // Create new conversation
+      const conversation = await conversationService.createConversation(userId, {
+        title: message.substring(0, 50), // Use first 50 chars as title
+        level: 'A1', // Default, can be updated later
+      });
+      conversationId = conversation.id;
+
+      // Register active conversation
+      await conversationManager.getOrCreateActiveConversation(conversationId, userId);
+
+      logger.info({ conversationId, userId }, 'Created new conversation');
+    } else {
+      // Verify conversation exists and belongs to user
+      const conversation = await conversationService.getConversation(conversationId, false);
+      if (!conversation) {
+        res.status(404).json({
+          success: false,
+          error: 'Conversation not found',
+        });
+        return;
+      }
+
+      if (conversation.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Unauthorized: Conversation does not belong to user',
+        });
+        return;
+      }
+
+      // Register active conversation
+      await conversationManager.getOrCreateActiveConversation(conversationId, userId);
+    }
+
+    // Save user message
+    const { message: userMessage } = await conversationService.sendMessage({
+      conversationId,
+      userId,
+      content: message,
+    });
+
+    // Emit message sent event
+    await eventBus.emitEvent(
+      'message:sent',
+      conversationId,
+      {
+        messageId: userMessage.id,
+        content: message,
+      },
+      { userId }
+    );
+
+    // Get conversation history from memory or provided history
+    let history: OllamaMessage[];
+    if (conversationHistory.length > 0) {
+      // Use provided history
+      history = conversationHistory.map((msg) => ({
+        role: msg.role as 'system' | 'user' | 'assistant',
+        content: msg.content,
+      }));
+    } else {
+      // Get history from memory service
+      const memoryHistory = await conversationService.getConversationHistory(conversationId);
+      history = memoryHistory.map((msg) => ({
+        role: msg.role as 'system' | 'user' | 'assistant',
+        content: msg.content,
+      }));
+    }
+
+    // Add current user message
+    history.push({
+      role: 'user',
+      content: message,
+    });
 
     // Performance timer for entire request
     const requestTimer = new PerformanceTimer('Request Start');
@@ -139,8 +227,9 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
       logger.debug({ conversationId, provided: !!requestConversationId }, '📡 [CHAT] Using conversation ID for WebSocket events');
       
       // Process response - this will start TTS generation but not wait for all
-      // Events will be emitted via WebSocket as chunks complete
-      const pipelineResult = await pipeline.processResponse(fullResponse, voice, conversationId);
+      // Events will be emitted via EventBus (which broadcasts via WebSocket) as chunks complete
+      // Pipeline will save assistant message and chunks to database
+      const pipelineResult = await pipeline.processResponse(fullResponse, voice, conversationId, userId);
       requestTimer.checkpoint('After Pipeline');
 
       requestTimer.checkpoint('Response Ready');
@@ -168,7 +257,18 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
         '✅ [CHAT] Pipeline processed, returning all chunks to client'
       );
       
-      // If using WebSocket, return minimal response (chunks sent via WebSocket)
+      // Emit message received event
+      await eventBus.emitEvent(
+        'message:received',
+        conversationId,
+        {
+          chunksCount: pipelineResult.chunks.length,
+          source: pipelineResult.source,
+        },
+        { userId }
+      );
+
+      // If using WebSocket, return minimal response (chunks sent via EventBus/WebSocket)
       if (useWebSocket) {
         res.json({
           success: true,

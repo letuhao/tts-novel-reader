@@ -45,6 +45,16 @@ export async function runMigrations(): Promise<void> {
     
     const migrationFiles = [
       { version: 1, name: '001_initial_schema.sql' },
+      { version: 2, name: '002_users_auth.sql' },
+      { version: 3, name: '003_conversations.sql' },
+      { version: 4, name: '004_messages.sql' },
+      { version: 5, name: '005_message_chunks.sql' },
+      { version: 6, name: '006_conversation_events.sql' },
+      { version: 7, name: '007_memory_tables.sql' },
+      { version: 8, name: '008_learning_features.sql' },
+      { version: 9, name: '009_organization_features.sql' },
+      { version: 10, name: '010_sharing_features.sql' },
+      { version: 11, name: '011_user_features.sql' },
       // Add more migrations here as version number increases
     ];
 

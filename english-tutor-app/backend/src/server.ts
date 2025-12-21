@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -61,6 +62,7 @@ app.use(cors({
   origin: process.env.FRONTEND_URL ?? 'http://localhost:11201',
   credentials: true
 }));
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -77,10 +79,12 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 // API routes
+import authRoutes from './routes/auth.js';
 import ollamaRoutes from './routes/ollama.js';
 import ttsRoutes from './routes/tts.js';
 import sttRoutes from './routes/stt.js';
 import settingsRoutes from './routes/settings.js';
+import conversationRoutes from './routes/conversations.js';
 
 app.get('/api', (_req: Request, res: Response) => {
   res.json({
@@ -106,6 +110,21 @@ app.get('/api', (_req: Request, res: Response) => {
         health: '/api/stt/health',
         transcribe: 'POST /api/stt/transcribe',
       },
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        logout: 'POST /api/auth/logout',
+        me: 'GET /api/auth/me',
+        verify: 'GET /api/auth/verify',
+        getUser: 'GET /api/auth/user/:id',
+      },
+      conversations: {
+        getAll: 'GET /api/conversations',
+        getById: 'GET /api/conversations/:id',
+        create: 'POST /api/conversations',
+        update: 'PUT /api/conversations/:id',
+        delete: 'DELETE /api/conversations/:id',
+      },
       settings: {
         system: {
           getAll: 'GET /api/settings/system',
@@ -126,6 +145,8 @@ app.get('/api', (_req: Request, res: Response) => {
 });
 
 // Register route handlers
+app.use('/api/auth', authRoutes);
+app.use('/api/conversations', conversationRoutes);
 app.use('/api/ollama', ollamaRoutes);
 app.use('/api/tts', ttsRoutes);
 app.use('/api/stt', sttRoutes);

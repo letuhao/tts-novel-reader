@@ -1,255 +1,322 @@
-# Next Steps - Immediate Action Items
+# Next Steps - Implementation Roadmap
 
-**Priority:** High  
-**Estimated Time:** 1-2 weeks
-
-## 🎯 Phase 2: Core AI Integration
-
-### Step 1: Complete Ollama API Integration (Days 1-2)
-
-**Goal:** Make Ollama service accessible via REST API
-
-#### Tasks:
-1. **Create Ollama Routes** (`backend/src/routes/ollama.ts`)
-   ```typescript
-   POST /api/ollama/chat
-   POST /api/ollama/grammar
-   POST /api/ollama/exercise
-   POST /api/ollama/feedback
-   ```
-
-2. **Add Request Validation** (Zod schemas)
-   - Validate input types
-   - Validate required fields
-   - Sanitize inputs
-
-3. **Test Endpoints**
-   - Test with gemma3:12b model
-   - Verify conversation flow
-   - Test grammar analysis
-   - Test exercise generation
-
-4. **Add Error Handling**
-   - Handle Ollama connection errors
-   - Handle timeout errors
-   - Return user-friendly error messages
-
-#### Acceptance Criteria:
-- ✅ All Ollama endpoints respond correctly
-- ✅ Conversation works end-to-end
-- ✅ Grammar analysis returns structured results
-- ✅ Exercise generation works
-- ✅ Error handling is robust
+**Date:** December 21, 2025  
+**Current Status:** Phase 2 Complete ✅
 
 ---
 
-### Step 2: TTS Integration (Days 3-4)
+## 🎯 Immediate Next Steps
 
-**Goal:** Integrate Coqui TTS for speech synthesis
+### Phase 3: Frontend Core Integration (Priority 1)
 
-#### Tasks:
-1. **Review Existing TTS Backend**
-   - Check TTS backend service (port 11111)
-   - Review API endpoints
-   - Test connection
+The backend is complete and tested. Now we need to update the frontend to work with the new event-driven architecture.
 
-2. **Create TTS Service Wrapper**
-   - `backend/src/services/tts/ttsService.ts`
-   - Methods: synthesize, getVoices, etc.
+#### 3.1 Update Frontend Authentication (Estimated: 2-3 hours)
+**Why:** Backend now requires authentication for all conversation endpoints.
 
-3. **Create TTS Routes**
-   ```typescript
-   POST /api/tts/synthesize
-   GET /api/tts/voices
-   ```
+**Tasks:**
+1. Create authentication context/hooks
+   - `src/contexts/AuthContext.tsx`
+   - `src/hooks/useAuth.ts`
+   - Login state management
+   - Token storage and refresh
 
-4. **Integrate with System Settings**
-   - Use settings from database (hot-reloadable)
-   - Default voice, speed from settings
-
-5. **Test Integration**
-   - Generate speech from text
-   - Test different voices
-   - Test speed control
-
-#### Acceptance Criteria:
-- ✅ TTS API endpoints work
-- ✅ Audio generation successful
-- ✅ Settings integration works
-- ✅ Audio quality acceptable
-
----
-
-### Step 3: STT Backend Setup (Days 5-7)
-
-**Goal:** Implement Whisper STT backend service
-
-#### Tasks:
-1. **Design STT Backend Structure**
-   - FastAPI service
-   - Whisper model integration
-   - Endpoint design
-
-2. **Implement STT Backend** (new service)
-   - Create `stt-backend/` directory
-   - Install Whisper dependencies
-   - Implement transcription endpoint
-
-3. **Create STT Service Wrapper** (in main backend)
-   - `backend/src/services/stt/sttService.ts`
-   - Methods: transcribe, transcribeStream
-
-4. **Create STT Routes**
-   ```typescript
-   POST /api/stt/transcribe
-   POST /api/stt/stream (optional)
-   ```
-
-5. **Test STT Integration**
-   - Test transcription accuracy
-   - Test different audio formats
-   - Test language detection
-
-#### Acceptance Criteria:
-- ✅ STT backend service running
-- ✅ Transcription works accurately
-- ✅ API integration successful
-- ✅ Audio format support verified
-
----
-
-## 🔄 Integration Testing (Day 8)
-
-### Full Flow Test
-1. **Conversation Flow:**
-   - User speaks → STT transcribes → Ollama responds → TTS generates audio
-   
-2. **Grammar Correction Flow:**
-   - User types text → Ollama analyzes → Returns corrections
-
-3. **Exercise Flow:**
-   - Request exercise → Ollama generates → Return to user
-
-### Test Checklist:
-- [ ] STT → Ollama conversation works
-- [ ] Ollama → TTS audio generation works
-- [ ] Grammar analysis returns valid JSON
-- [ ] Exercise generation works
-- [ ] Error handling in all flows
-- [ ] Performance acceptable (< 3s response time)
-
----
-
-## 📝 API Documentation (Day 9)
-
-### Tasks:
-1. **Create OpenAPI/Swagger Spec**
-   - Document all endpoints
-   - Add request/response examples
-   - Add authentication info (when added)
-
-2. **API Documentation Page**
-   - Swagger UI integration
-   - Interactive API explorer
-
-3. **Update README**
-   - API usage examples
-   - Quick start guide
-   - Configuration guide
-
----
-
-## 🎨 Frontend Basics (Day 10-12)
-
-### Tasks:
-1. **Setup Routing**
-   - React Router configuration
-   - Basic page structure
-
-2. **Conversation UI**
-   - Chat interface
-   - Audio player
-   - Recording component
-
-3. **API Integration**
-   - Axios setup
-   - API service layer
+2. Create login/register pages
+   - `src/pages/Login.tsx`
+   - `src/pages/Register.tsx`
+   - Form validation
    - Error handling
 
-4. **State Management**
-   - Zustand stores
-   - Conversation state
-   - User state
+3. Update routes with authentication
+   - Protected route wrapper
+   - Redirect to login if not authenticated
+   - Update `App.tsx` routing
+
+4. Update API services
+   - Add auth token to requests
+   - Handle 401 errors (logout)
+   - Token refresh logic
+
+**Files to Create/Update:**
+- `frontend/src/contexts/AuthContext.tsx` (NEW)
+- `frontend/src/hooks/useAuth.ts` (NEW)
+- `frontend/src/pages/Login.tsx` (NEW)
+- `frontend/src/pages/Register.tsx` (NEW)
+- `frontend/src/services/authApi.ts` (NEW)
+- `frontend/src/services/api.ts` (UPDATE - add auth headers)
+- `frontend/src/App.tsx` (UPDATE - add auth routes)
 
 ---
 
-## 📊 Success Metrics
+#### 3.2 Update Conversation Component (Estimated: 3-4 hours)
+**Why:** Backend API has changed significantly with new event-driven architecture.
 
-### Technical Metrics:
-- ✅ API response time < 3 seconds
-- ✅ Ollama service availability > 95%
-- ✅ TTS generation time < 2 seconds
-- ✅ STT accuracy > 90%
-- ✅ Zero critical bugs
+**Tasks:**
+1. Update WebSocket integration
+   - Connect to new event types
+   - Handle `conversation:started` event
+   - Handle `chunk:tts-completed` event
+   - Handle `audio:ready` event
 
-### Functional Metrics:
-- ✅ All AI services integrated
-- ✅ Conversation flow works end-to-end
-- ✅ Grammar analysis functional
-- ✅ Exercise generation works
-- ✅ Settings system operational
+2. Update conversation flow
+   - Create conversation before sending message
+   - Send `conversationId` with messages
+   - Handle new response format
 
----
+3. Update message display
+   - Show chunks separately
+   - Display TTS status
+   - Show audio playback controls
 
-## 🚨 Risk Mitigation
+4. Update state management
+   - Conversation store updates
+   - Message store updates
+   - Audio store updates
 
-### Potential Issues:
-1. **Ollama Performance**
-   - Risk: Slow response times
-   - Mitigation: Use smaller model for real-time, cache responses
+**Files to Update:**
+- `frontend/src/pages/Conversation.tsx` (MAJOR UPDATE)
+- `frontend/src/services/websocketService.ts` (UPDATE)
+- `frontend/src/services/ollamaApi.ts` (UPDATE)
+- `frontend/src/store/useConversationStore.ts` (UPDATE)
+- `frontend/src/store/useAudioStore.ts` (UPDATE)
 
-2. **Whisper Accuracy**
-   - Risk: Transcription errors
-   - Mitigation: Use large-v3 model, add confidence scoring
-
-3. **Integration Complexity**
-   - Risk: Services don't work well together
-   - Mitigation: Incremental testing, mock services for dev
-
----
-
-## 📅 Timeline
-
-| Week | Days | Focus | Deliverables |
-|------|------|-------|--------------|
-| 1 | 1-2 | Ollama API | Ollama endpoints working |
-| 1 | 3-4 | TTS Integration | TTS endpoints working |
-| 1 | 5-7 | STT Backend | STT service running |
-| 2 | 8 | Integration | Full flow tested |
-| 2 | 9 | Documentation | API docs complete |
-| 2 | 10-12 | Frontend | Basic UI functional |
+**Key Changes:**
+- Remove old chunk handling logic
+- Add conversation creation
+- Update WebSocket event handlers
+- Use new event types from backend
 
 ---
 
-## 🎯 Priority Matrix
+#### 3.3 Conversation List View (Estimated: 2-3 hours)
+**Why:** Users need to see and manage their conversations.
 
-### Must Have (P0):
-- Ollama chat endpoint
-- TTS synthesize endpoint
-- Basic conversation flow
+**Tasks:**
+1. Create conversation list component
+   - `src/pages/Conversations.tsx`
+   - List all user conversations
+   - Show conversation title, last message, timestamp
+   - Click to open conversation
 
-### Should Have (P1):
-- Grammar analysis endpoint
-- Exercise generation endpoint
-- STT transcription endpoint
+2. Create conversation API service
+   - `src/services/conversationApi.ts`
+   - Get all conversations
+   - Get conversation by ID
+   - Create new conversation
+   - Delete conversation
 
-### Nice to Have (P2):
-- Real-time STT streaming
-- Advanced error handling
-- Rate limiting
-- API documentation UI
+3. Add navigation
+   - Link from conversation list to detail
+   - Link from detail back to list
+   - New conversation button
+
+**Files to Create:**
+- `frontend/src/pages/Conversations.tsx` (NEW)
+- `frontend/src/services/conversationApi.ts` (NEW)
+- `frontend/src/components/ConversationCard.tsx` (NEW)
 
 ---
 
-**Next Action:** Start implementing Ollama API routes
+### Phase 4: Polish & Advanced Features (Priority 2)
 
+#### 4.1 Error Handling & Loading States (Estimated: 2 hours)
+- Loading spinners
+- Error messages
+- Retry logic
+- Network error handling
+
+#### 4.2 UI/UX Improvements (Estimated: 3-4 hours)
+- Better message bubbles
+- Typing indicators
+- Audio waveform visualization
+- Responsive design
+
+#### 4.3 Learning Features UI (Estimated: 4-5 hours)
+- Grammar correction display
+- Vocabulary tracking
+- Progress dashboard
+- Statistics view
+
+---
+
+## 📋 Detailed Implementation Plan
+
+### Step 1: Authentication (Start Here)
+
+```typescript
+// 1. Create AuthContext
+// frontend/src/contexts/AuthContext.tsx
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  
+  const login = async (email, password) => {
+    // Call /api/auth/login
+    // Store token
+    // Set user
+  };
+  
+  const logout = () => {
+    // Clear token
+    // Clear user
+    // Redirect to login
+  };
+  
+  return (
+    <AuthContext.Provider value={{ user, token, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+// 2. Create useAuth hook
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
+};
+
+// 3. Update API service to include token
+axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+```
+
+### Step 2: Update Conversation Component
+
+```typescript
+// Key changes in Conversation.tsx:
+
+// 1. Create conversation first
+const conversation = await conversationApi.create({
+  title: 'New Conversation',
+  level: 'A1',
+});
+
+// 2. Update WebSocket connection
+const ws = new WebSocket(`ws://localhost:11200/ws?conversationId=${conversation.id}`);
+
+// 3. Handle new event types
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  switch (data.type) {
+    case 'conversation:started':
+      // Handle conversation start
+      break;
+    case 'chunk:tts-completed':
+      // Handle TTS completion
+      break;
+    case 'audio:ready':
+      // Handle audio ready
+      break;
+  }
+};
+
+// 4. Send message with conversationId
+await ollamaApi.chat({
+  message: userMessage,
+  conversationId: conversation.id,
+  useWebSocket: true,
+});
+```
+
+### Step 3: Conversation List
+
+```typescript
+// frontend/src/pages/Conversations.tsx
+const Conversations = () => {
+  const [conversations, setConversations] = useState([]);
+  
+  useEffect(() => {
+    loadConversations();
+  }, []);
+  
+  const loadConversations = async () => {
+    const data = await conversationApi.getAll();
+    setConversations(data);
+  };
+  
+  return (
+    <div>
+      {conversations.map(conv => (
+        <ConversationCard
+          key={conv.id}
+          conversation={conv}
+          onClick={() => navigate(`/conversation/${conv.id}`)}
+        />
+      ))}
+    </div>
+  );
+};
+```
+
+---
+
+## 🚀 Quick Start Guide
+
+### To Start Phase 3:
+
+1. **Begin with Authentication**
+   ```bash
+   # Create auth context and hooks
+   # Create login/register pages
+   # Update API service
+   ```
+
+2. **Update Conversation Component**
+   ```bash
+   # Update WebSocket integration
+   # Update message handling
+   # Update state management
+   ```
+
+3. **Add Conversation List**
+   ```bash
+   # Create conversations page
+   # Create conversation API
+   # Add navigation
+   ```
+
+---
+
+## 📊 Estimated Timeline
+
+### Phase 3: Frontend Core
+- **Authentication:** 2-3 hours
+- **Conversation Update:** 3-4 hours
+- **Conversation List:** 2-3 hours
+- **Testing & Bug Fixes:** 2-3 hours
+- **Total:** ~10-13 hours
+
+### Phase 4: Polish
+- **Error Handling:** 2 hours
+- **UI/UX:** 3-4 hours
+- **Learning Features:** 4-5 hours
+- **Total:** ~9-11 hours
+
+---
+
+## 🎯 Success Criteria
+
+### Phase 3 Complete When:
+- ✅ User can register and login
+- ✅ User can create new conversation
+- ✅ User can send messages
+- ✅ User can see assistant responses
+- ✅ Audio plays correctly
+- ✅ WebSocket events work
+- ✅ User can see conversation list
+- ✅ User can switch between conversations
+
+---
+
+## 📝 Notes
+
+- Backend is production-ready
+- All tests passing
+- Type-safe throughout
+- Event-driven architecture working
+- Frontend needs update to match new backend API
+
+---
+
+**Ready to start Phase 3?** Begin with authentication implementation!

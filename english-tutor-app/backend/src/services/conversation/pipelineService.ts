@@ -7,7 +7,8 @@
 import { getTTSService } from '../tts/ttsService.js';
 import { parseResponseWithFallback, type ParsedResponse, type ParsedChunk } from './structuredResponseParser.js';
 import { createChildLogger } from '../../utils/logger.js';
-import { getWebSocketService } from '../websocket/websocketService.js';
+import { eventBus } from './eventBus.js';
+import { conversationService } from './conversationService.js';
 
 const logger = createChildLogger({ service: 'conversation-pipeline' });
 
@@ -22,7 +23,10 @@ export interface PipelineConfig {
 
 const DEFAULT_CONFIG: PipelineConfig = {
   tts: {
-    maxConcurrent: 2, // Limit to 2 concurrent TTS requests
+    maxConcurrent: 1, // Sequential processing for single GPU (RTX 4090)
+    // Note: Parallel processing on single GPU causes resource contention
+    // and doesn't improve speed. Sequential ensures optimal GPU utilization
+    // and faster first chunk completion for better realtime UX.
     priorityOrder: 'priority', // First chunk gets priority
     retryAttempts: 2,
     timeout: 30000, // 30 seconds per chunk
@@ -78,14 +82,16 @@ export class ConversationPipelineService {
   }
 
   /**
-   * Emit event to registered callbacks and WebSocket
+   * Emit event via EventBus and callbacks
    */
-  private emitEvent(
+  private async emitEvent(
     type: 'chunk-update' | 'chunk-complete' | 'chunk-failed' | 'all-complete',
     chunkIndex: number,
     chunk: ProcessedChunk,
-    conversationId?: string
-  ): void {
+    conversationId?: string,
+    userId?: string,
+    audioDataBase64?: string
+  ): Promise<void> {
     const event = { type, chunkIndex, chunk, conversationId };
 
     // Call registered callbacks
@@ -96,39 +102,60 @@ export class ConversationPipelineService {
       }
     }
 
-    // Broadcast via WebSocket (use actual event type)
+    // Emit via EventBus (which handles WebSocket broadcasting)
     if (conversationId) {
-      const wsService = getWebSocketService();
-      wsService.broadcastToConversation(conversationId, {
-        type, // Use actual event type, not always 'chunk-update'
-        data: {
+      const eventType = type === 'chunk-update' ? 'chunk:created' :
+                       type === 'chunk-complete' ? 'chunk:tts-completed' :
+                       type === 'chunk-failed' ? 'chunk:tts-failed' :
+                       'chunk:created';
+
+      const chunkData = {
+        id: chunk.id,
+        text: chunk.text,
+        emotion: chunk.emotion,
+        icon: chunk.icon,
+        pause: chunk.pause,
+        emphasis: chunk.emphasis,
+        audioFileId: chunk.audioFileId,
+        duration: chunk.duration,
+        ttsStatus: chunk.ttsStatus,
+        ttsError: chunk.ttsError,
+        // Include audio data as base64 if available
+        ...(audioDataBase64 && { audioData: audioDataBase64 }),
+      };
+      
+      logger.info({ 
+        eventType,
+        chunkIndex,
+        hasAudioData: !!audioDataBase64,
+        audioDataLength: audioDataBase64?.length,
+        audioFileId: chunk.audioFileId,
+        chunkDataKeys: Object.keys(chunkData)
+      }, '📤 [EVENT] Emitting event with chunk data');
+      
+      await eventBus.emitEvent(
+        eventType,
+        conversationId,
+        {
           chunkIndex,
-          chunk: {
-            id: chunk.id,
-            text: chunk.text,
-            emotion: chunk.emotion,
-            icon: chunk.icon,
-            pause: chunk.pause,
-            emphasis: chunk.emphasis,
-            audioFileId: chunk.audioFileId,
-            duration: chunk.duration,
-            ttsStatus: chunk.ttsStatus,
-            ttsError: chunk.ttsError,
-          },
+          chunk: chunkData,
         },
-      });
+        userId ? { userId } : undefined
+      );
     }
   }
 
   /**
    * Process Ollama response through pipeline
    * Returns immediately after parsing, TTS continues in background
-   * Emits events as chunks complete via WebSocket
+   * Emits events as chunks complete via EventBus
+   * Saves messages and chunks to database
    */
   async processResponse(
     ollamaResponse: string,
     voice?: string,
-    conversationId?: string
+    conversationId?: string,
+    userId?: string
   ): Promise<PipelineResult> {
     const pipelineStartTime = Date.now();
     logger.info({ responseLength: ollamaResponse.length }, '🚀 [PIPELINE] Starting pipeline processing');
@@ -158,27 +185,58 @@ export class ConversationPipelineService {
       ttsStatus: 'pending' as const,
     }));
 
-    // Step 3: Send initial chunks via WebSocket (conversation-start event)
+    // Step 3: Save assistant message and chunks to database
     if (conversationId) {
-      const wsService = getWebSocketService();
-      wsService.broadcastToConversation(conversationId, {
-        type: 'conversation-start',
-        data: {
+      try {
+        // Get full content (all chunks combined)
+        const fullContent = parsed.chunks.map(c => c.text).join(' ');
+
+        // Save assistant response with chunks
+        const { message, chunks: savedChunks } = await conversationService.saveAssistantResponse(
           conversationId,
-          chunks: processedChunks.map((chunk) => ({
-            id: chunk.id,
+          fullContent,
+          parsed.chunks.map(chunk => ({
             text: chunk.text,
             emotion: chunk.emotion,
             icon: chunk.icon,
-            pause: chunk.pause,
+            pauseAfter: chunk.pause,
             emphasis: chunk.emphasis,
-            ttsStatus: chunk.ttsStatus,
           })),
-          metadata: parsed.metadata,
-          source: parsed.source,
-        },
-      });
-      logger.debug({ conversationId, chunkCount: processedChunks.length }, '📡 [PIPELINE] Sent conversation-start event');
+          {
+            source: parsed.source,
+            metadata: parsed.metadata,
+          }
+        );
+
+        // Map saved chunks to processed chunks (for audio file IDs)
+        for (let i = 0; i < processedChunks.length && i < savedChunks.length; i++) {
+          const savedChunk = savedChunks[i];
+          if (savedChunk) {
+            processedChunks[i]!.id = savedChunk.id;
+          }
+        }
+
+        // Emit conversation started event
+        await eventBus.emitEvent(
+          'conversation:started',
+          conversationId,
+          {
+            messageId: message.id,
+            chunksCount: savedChunks.length,
+            metadata: parsed.metadata,
+            source: parsed.source,
+          },
+          userId ? { userId } : undefined
+        );
+
+        logger.debug(
+          { conversationId, messageId: message.id, chunkCount: processedChunks.length },
+          '📡 [PIPELINE] Saved assistant response and emitted conversation-start event'
+        );
+      } catch (error) {
+        logger.error({ err: error, conversationId }, '❌ [PIPELINE] Failed to save assistant response');
+        // Continue processing even if save fails
+      }
     }
 
     // Step 4: Start TTS processing in background (don't wait)
@@ -186,7 +244,7 @@ export class ConversationPipelineService {
     logger.debug({ totalChunks: processedChunks.length, maxConcurrent: this.config.tts.maxConcurrent }, '🎵 [PIPELINE] TTS queue configuration');
     
     // Start TTS processing but don't await - let it run in background
-    this.processTTSQueue(parsed.chunks, voice, processedChunks, conversationId).catch((error) => {
+    this.processTTSQueue(parsed.chunks, voice, processedChunks, conversationId, userId).catch((error) => {
       logger.error({ err: error }, '❌ [PIPELINE] Background TTS processing error');
     });
 
@@ -213,12 +271,14 @@ export class ConversationPipelineService {
   /**
    * Process chunks through TTS queue with controlled concurrency
    * Updates processedChunks in place as TTS completes
+   * Saves audio file IDs to database chunks
    */
   private async processTTSQueue(
     chunks: ParsedChunk[],
     voice: string | undefined,
     processedChunks: ProcessedChunk[],
-    conversationId?: string
+    conversationId?: string,
+    userId?: string
   ): Promise<void> {
     const queueStartTime = Date.now();
     logger.debug({ totalChunks: chunks.length, maxConcurrent: this.config.tts.maxConcurrent }, '🎵 [TTS-QUEUE] Starting TTS queue processing');
@@ -244,13 +304,10 @@ export class ConversationPipelineService {
       const chunkStartTime = Date.now();
       logger.debug({ chunkIndex: i, text: chunk.text.substring(0, 50), activeCount: activePromises.length }, '🎵 [TTS-QUEUE] Starting TTS for chunk');
       
-        const chunkPromise = this.processChunkTTS(chunk, voice, i, conversationId)
+        const chunkPromise = this.processChunkTTS(chunk, voice, i, conversationId, userId)
           .then(() => {
             const chunkTime = Date.now() - chunkStartTime;
             logger.debug({ chunkIndex: i, timeMs: chunkTime, status: chunk.ttsStatus }, '✅ [TTS-QUEUE] Chunk TTS completed');
-            
-            // Don't emit chunk-complete here - it's already emitted in processChunkTTS when status becomes 'completed'
-            // This prevents duplicate events
             
             // Remove from active promises when done
             const index = activePromises.findIndex((p) => p.index === i);
@@ -263,8 +320,8 @@ export class ConversationPipelineService {
           .catch((error) => {
             logger.error({ err: error, chunkIndex: i }, '❌ [TTS-QUEUE] Chunk TTS failed');
             
-            // Emit chunk failed event
-            this.emitEvent('chunk-failed', i, chunk, conversationId);
+            // Emit chunk failed event (already handled in processChunkTTS, but ensure it's emitted)
+            void this.emitEvent('chunk-failed', i, chunk, conversationId, userId);
             
             // Remove from active promises on error too
             const index = activePromises.findIndex((p) => p.index === i);
@@ -307,18 +364,34 @@ export class ConversationPipelineService {
   /**
    * Process single chunk through TTS
    * Emits events as status changes
+   * Updates chunk in database with audio file ID
    */
   private async processChunkTTS(
     chunk: ProcessedChunk,
     voice: string | undefined,
     index: number,
-    conversationId?: string
+    conversationId?: string,
+    userId?: string
   ): Promise<void> {
     const ttsStartTime = Date.now();
     chunk.ttsStatus = 'processing';
     
     // Emit processing started event
-    this.emitEvent('chunk-update', index, chunk, conversationId);
+    await this.emitEvent('chunk-update', index, chunk, conversationId, userId);
+    
+    // Emit TTS started event
+    if (conversationId) {
+      await eventBus.emitEvent(
+        'chunk:tts-started',
+        conversationId,
+        {
+          chunkIndex: index,
+          chunkId: chunk.id,
+          text: chunk.text,
+        },
+        userId ? { userId } : undefined
+      );
+    }
 
     try {
       logger.debug(
@@ -374,20 +447,73 @@ export class ConversationPipelineService {
         { 
           chunkIndex: index, 
           requestTimeMs: ttsRequestTime,
-          success: ttsResponse.success
+          success: ttsResponse.success,
+          hasFileId: !!ttsResponse.fileId,
+          fileId: ttsResponse.fileId
         }, 
         '📥 [TTS] TTS response received'
       );
 
       if (ttsResponse.success && ttsResponse.fileId) {
+        logger.debug({ chunkIndex: index, fileId: ttsResponse.fileId }, '🔄 [TTS] TTS successful, processing audio data');
+        
         chunk.audioFileId = ttsResponse.fileId;
         if (ttsResponse.duration !== undefined) {
           chunk.duration = ttsResponse.duration;
         }
         chunk.ttsStatus = 'completed';
         
-        // Emit chunk update event (status changed to completed)
-        this.emitEvent('chunk-update', index, chunk, conversationId);
+        // Fetch audio data to send via WebSocket
+        let audioDataBase64: string | undefined;
+        try {
+          logger.info({ chunkIndex: index, fileId: ttsResponse.fileId }, '🔄 [AUDIO] Fetching audio data for WebSocket');
+          const ttsService = getTTSService();
+          logger.debug({ chunkIndex: index, fileId: ttsResponse.fileId }, '🔄 [AUDIO] Calling ttsService.getAudio()');
+          const audioBuffer = await ttsService.getAudio(ttsResponse.fileId);
+          logger.debug({ chunkIndex: index, hasBuffer: !!audioBuffer, bufferLength: audioBuffer?.length }, '🔄 [AUDIO] getAudio() returned');
+          
+          if (audioBuffer) {
+            logger.debug({ chunkIndex: index, bufferLength: audioBuffer.length }, '🔄 [AUDIO] Converting buffer to base64');
+            audioDataBase64 = audioBuffer.toString('base64');
+            logger.info({ 
+              chunkIndex: index, 
+              audioSize: audioBuffer.length,
+              base64Length: audioDataBase64.length 
+            }, '✅ [AUDIO] Audio data fetched and converted to base64 for WebSocket');
+          } else {
+            logger.warn({ chunkIndex: index, fileId: ttsResponse.fileId }, '⚠️ [AUDIO] Audio buffer is null');
+          }
+        } catch (error) {
+          logger.error({ 
+            err: error instanceof Error ? error : new Error(String(error)), 
+            chunkIndex: index,
+            fileId: ttsResponse.fileId,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined
+          }, '❌ [AUDIO] Failed to fetch audio data, will send fileId only');
+        }
+        
+        logger.debug({ 
+          chunkIndex: index, 
+          hasAudioData: !!audioDataBase64,
+          audioDataLength: audioDataBase64?.length 
+        }, '🔄 [AUDIO] Audio data processing complete, about to emit event');
+        
+        // Update chunk in database with audio file ID
+        if (chunk.id && conversationId && chunk.audioFileId) {
+          try {
+            await conversationService.updateChunk(chunk.id, {
+              audioFileId: chunk.audioFileId,
+              ...(chunk.duration !== undefined && { audioDuration: chunk.duration }),
+              ttsStatus: 'completed',
+            });
+          } catch (error) {
+            logger.error({ err: error, chunkId: chunk.id }, 'Failed to update chunk in database');
+          }
+        }
+        
+        // Emit chunk update event with audio data (status changed to completed)
+        await this.emitEvent('chunk-complete', index, chunk, conversationId, userId, audioDataBase64);
         
         const totalTime = Date.now() - ttsStartTime;
         logger.info(
@@ -403,8 +529,31 @@ export class ConversationPipelineService {
           '✅ [TTS] TTS generated successfully'
         );
       } else {
+        logger.warn({ 
+          chunkIndex: index, 
+          success: ttsResponse.success, 
+          hasFileId: !!ttsResponse.fileId,
+          fileId: ttsResponse.fileId,
+          error: ttsResponse.error 
+        }, '⚠️ [TTS] TTS response not successful or missing fileId - skipping audio fetch');
+        
         chunk.ttsStatus = 'failed';
         chunk.ttsError = ttsResponse.error ?? 'TTS generation failed';
+        
+        // Update chunk in database with failed status
+        if (chunk.id && conversationId) {
+          try {
+            await conversationService.updateChunk(chunk.id, {
+              ttsStatus: 'failed',
+            });
+          } catch (error) {
+            logger.error({ err: error, chunkId: chunk.id }, 'Failed to update chunk status in database');
+          }
+        }
+        
+        // Emit failed event
+        await this.emitEvent('chunk-failed', index, chunk, conversationId, userId);
+        
         logger.warn(
           { 
             chunkIndex: index, 
@@ -419,8 +568,19 @@ export class ConversationPipelineService {
       chunk.ttsStatus = 'failed';
       chunk.ttsError = error instanceof Error ? error.message : 'Unknown error';
       
+      // Update chunk in database with failed status
+      if (chunk.id && conversationId) {
+        try {
+          await conversationService.updateChunk(chunk.id, {
+            ttsStatus: 'failed',
+          });
+        } catch (updateError) {
+          logger.error({ err: updateError, chunkId: chunk.id }, 'Failed to update chunk status in database');
+        }
+      }
+      
       // Emit failed event
-      this.emitEvent('chunk-failed', index, chunk, conversationId);
+      await this.emitEvent('chunk-failed', index, chunk, conversationId, userId);
       
       logger.error(
         { 

@@ -1,205 +1,174 @@
-# English Tutor App Documentation
+# English Tutor App - Documentation Index
 
-Welcome to the English Tutor App documentation! This directory contains comprehensive documentation for the AI-powered English learning application.
-
-## 📚 Documentation Index
-
-### Overview Documents
-
-1. **[OVERVIEW.md](./OVERVIEW.md)**
-   - Project vision and goals
-   - Architecture overview
-   - Core AI components
-   - Learning features
-   - Technical implementation overview
-
-2. **[AI_MODELS_INTEGRATION.md](./AI_MODELS_INTEGRATION.md)**
-   - Detailed integration guide for all AI models
-   - Ollama (main brain) integration
-   - Coqui TTS integration
-   - Whisper STT implementation
-   - Integration flow examples
-   - Performance considerations
-
-3. **[CURRICULUM_DESIGN.md](./CURRICULUM_DESIGN.md)**
-   - Comprehensive curriculum structure
-   - CEFR level framework (A1-C2)
-   - Learning outcomes per level
-   - Exercise types and assessment system
-   - Content sources
-
-4. **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)**
-   - Step-by-step implementation guide
-   - Development phases (8 phases, 24 weeks)
-   - Technical stack
-   - Milestones and success criteria
-   - Risk mitigation strategies
-
-## 🎯 Quick Start
-
-### For Developers
-
-1. Start with **[OVERVIEW.md](./OVERVIEW.md)** to understand the project
-2. Read **[AI_MODELS_INTEGRATION.md](./AI_MODELS_INTEGRATION.md)** for AI integration details
-3. Review **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** for development roadmap
-
-### For Curriculum Designers
-
-1. Read **[CURRICULUM_DESIGN.md](./CURRICULUM_DESIGN.md)** for curriculum structure
-2. Review **[OVERVIEW.md](./OVERVIEW.md)** for learning features
-
-### For Project Managers
-
-1. Start with **[OVERVIEW.md](./OVERVIEW.md)** for project scope
-2. Review **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** for timeline and milestones
-
-## 🏗️ Project Architecture
-
-```
-English Tutor App
-├── Ollama (Main Brain)
-│   ├── Conversational AI
-│   ├── Grammar Analysis
-│   ├── Content Generation
-│   └── Adaptive Learning
-│
-├── Coqui TTS (Text-to-Speech)
-│   ├── Lesson narration
-│   ├── Pronunciation examples
-│   └── Exercise instructions
-│
-├── Whisper STT (Speech-to-Text)
-│   ├── Student speech transcription
-│   ├── Pronunciation assessment
-│   └── Conversation capture
-│
-└── Curriculum System
-    ├── CEFR-aligned content
-    ├── Progress tracking
-    └── Assessment system
-```
-
-## 🧠 AI Models
-
-### Primary Models
-
-1. **Ollama** - Central reasoning engine
-   - Models: llama3.1:8b, llama3.1:70b, mistral:7b
-   - Responsibilities: Conversation, grammar, exercises, feedback
-
-2. **Coqui TTS** - Speech synthesis
-   - Status: ✅ Already integrated
-   - Usage: Natural English speech generation
-
-3. **Whisper** - Speech recognition
-   - Status: ⏳ To be implemented
-   - Usage: Student speech transcription
-
-### Future Models
-
-- Grammar correction models
-- Pronunciation assessment
-- Sentiment analysis
-- Learning analytics
-
-## 📖 Curriculum Levels
-
-The curriculum follows CEFR standards:
-
-- **A1 (Beginner)** - Basic expressions and phrases
-- **A2 (Elementary)** - Simple sentences and routine tasks
-- **B1 (Intermediate)** - Main points of familiar topics
-- **B2 (Upper-Intermediate)** - Complex texts and abstract topics
-- **C1 (Advanced)** - Demanding texts and fluent expression
-- **C2 (Proficient)** - Native-like proficiency
-
-See **[CURRICULUM_DESIGN.md](./CURRICULUM_DESIGN.md)** for detailed breakdown.
-
-## 🚀 Development Roadmap
-
-The project is planned in 8 phases over 24 weeks:
-
-1. **Foundation & Setup** (Weeks 1-2)
-2. **Core AI Integration** (Weeks 3-5)
-3. **Curriculum System** (Weeks 6-8)
-4. **Core Learning Features** (Weeks 9-12)
-5. **Advanced Features** (Weeks 13-16)
-6. **Frontend Development** (Weeks 17-20)
-7. **Testing & QA** (Weeks 21-22)
-8. **Polish & Launch** (Weeks 23-24)
-
-See **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** for detailed tasks.
-
-## 🔧 Technology Stack
-
-### Backend
-- Node.js 18+ or Python 3.10+
-- Express.js or FastAPI
-- PostgreSQL or SQLite
-- Ollama API
-- Coqui TTS (existing)
-- Whisper STT (to implement)
-
-### Frontend
-- React 18+ or Next.js 14+
-- TypeScript
-- Tailwind CSS
-- Web Audio API
-
-## 📊 Key Features
-
-### Core Features
-- ✅ Personalized learning paths
-- ✅ Interactive conversations with AI
-- ✅ Real-time pronunciation practice
-- ✅ Comprehensive grammar lessons
-- ✅ Vocabulary building with spaced repetition
-- ✅ Progress tracking and analytics
-
-### Advanced Features
-- ✅ Grammar correction and feedback
-- ✅ Adaptive learning algorithms
-- ✅ Gamification (points, levels, achievements)
-- ✅ Multi-skill assessment
-- ✅ Conversation practice with AI tutor
-
-## 📝 Documentation Status
-
-| Document | Status | Last Updated |
-|----------|--------|--------------|
-| OVERVIEW.md | ✅ Complete | [Current Date] |
-| AI_MODELS_INTEGRATION.md | ✅ Complete | [Current Date] |
-| CURRICULUM_DESIGN.md | ✅ Complete | [Current Date] |
-| IMPLEMENTATION_PLAN.md | ✅ Complete | [Current Date] |
-| README.md | ✅ Complete | [Current Date] |
-
-## 🤝 Contributing
-
-This documentation is part of the planning phase. As the project develops:
-
-1. Update documentation as features are implemented
-2. Add examples and code snippets
-3. Include troubleshooting guides
-4. Add API documentation
-5. Create user guides
-
-## 🔗 Related Resources
-
-- [Ollama Documentation](https://ollama.ai/docs)
-- [Coqui TTS Documentation](https://github.com/coqui-ai/TTS)
-- [Whisper Documentation](https://github.com/openai/whisper)
-- [CEFR Guidelines](https://www.coe.int/en/web/common-european-framework-reference-languages)
-
-## 📞 Questions?
-
-For questions about:
-- **Architecture:** See OVERVIEW.md
-- **AI Integration:** See AI_MODELS_INTEGRATION.md
-- **Curriculum:** See CURRICULUM_DESIGN.md
-- **Development:** See IMPLEMENTATION_PLAN.md
+**Last Updated:** December 21, 2025
 
 ---
 
-**Status:** Planning Phase Complete
-**Next Steps:** Begin Phase 1 - Foundation & Setup
+## 📚 Documentation Overview
 
+This directory contains comprehensive documentation for the English Tutor application.
+
+---
+
+## 🎯 Quick Links
+
+### Progress & Status
+- **[COMPLETE_PROGRESS_SUMMARY.md](./COMPLETE_PROGRESS_SUMMARY.md)** - Complete progress overview
+- **[PROGRESS_UPDATE_2025-12-21-PHASE4.md](./PROGRESS_UPDATE_2025-12-21-PHASE4.md)** - Phase 4 completion (Latest)
+- **[PROGRESS_UPDATE_2025-12-21-FINAL.md](./PROGRESS_UPDATE_2025-12-21-FINAL.md)** - Previous progress update
+- **[FRONTEND_PROGRESS.md](./FRONTEND_PROGRESS.md)** - Frontend-specific progress
+- **[CURRENT_STATUS.md](./CURRENT_STATUS.md)** - Quick status reference
+
+### Architecture & Design
+- **[EVENT_DRIVEN_CONVERSATION_DESIGN.md](./EVENT_DRIVEN_CONVERSATION_DESIGN.md)** - Event-driven architecture
+- **[EVENT_REFERENCE.md](./EVENT_REFERENCE.md)** - Event types reference
+- **[MEMORY_MANAGEMENT_DESIGN.md](./MEMORY_MANAGEMENT_DESIGN.md)** - Memory management design
+- **[RXJS_EVALUATION.md](./RXJS_EVALUATION.md)** - RxJS evaluation and decision
+
+### Implementation
+- **[AUTHENTICATION_IMPLEMENTATION.md](./AUTHENTICATION_IMPLEMENTATION.md)** - Auth system implementation
+- **[RXJS_REFACTOR_COMPLETE.md](./RXJS_REFACTOR_COMPLETE.md)** - RxJS refactor details
+- **[REPOSITORIES_IMPLEMENTATION.md](./REPOSITORIES_IMPLEMENTATION.md)** - Repository implementation
+
+### Features & Planning
+- **[ADDITIONAL_FEATURES.md](./ADDITIONAL_FEATURES.md)** - Additional features list
+- **[REQUIREMENTS_CLARIFICATION.md](./REQUIREMENTS_CLARIFICATION.md)** - Requirements clarification
+- **[IMPLEMENTATION_PLAN_V2.md](./IMPLEMENTATION_PLAN_V2.md)** - Implementation plan
+
+### Testing
+- **[UNIT_TESTS_PHASE2.md](./UNIT_TESTS_PHASE2.md)** - Unit tests documentation
+- **[INTEGRATION_TESTS_PHASE2.md](./INTEGRATION_TESTS_PHASE2.md)** - Integration tests documentation
+
+---
+
+## 📊 Current Status
+
+### Overall Progress: **90% Complete**
+
+| Phase | Status | Progress |
+|-------|--------|----------|
+| Phase 1: Foundation | ✅ Complete | 100% |
+| Phase 2: Core System | ✅ Complete | 100% |
+| Phase 3: Frontend Core | ✅ Complete | 100% |
+| Phase 4: Polish | ✅ Complete | 100% |
+| Phase 5: Learning Features | ❌ Not Started | 0% |
+
+---
+
+## 🏗️ Architecture
+
+### Backend
+- ✅ **Database:** PostgreSQL 18.1 with 11 migrations
+- ✅ **Authentication:** JWT-based with bcrypt
+- ✅ **Services:** 8+ services (auth, conversation, memory, etc.)
+- ✅ **Routes:** 6 route files, 30+ endpoints
+- ✅ **Testing:** 76 tests (all passing)
+
+### Frontend
+- ✅ **Framework:** React + TypeScript + Vite
+- ✅ **State:** Zustand
+- ✅ **Reactive:** RxJS
+- ✅ **Pages:** 6 pages
+- ✅ **Components:** 3 components
+- ✅ **Services:** 8 services
+
+---
+
+## 🚀 Quick Start
+
+### Backend
+```bash
+cd backend
+npm install
+npm run migrate
+npm run dev
+```
+
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## 📝 Key Features
+
+### ✅ Implemented
+- User authentication (register/login)
+- Conversation management (CRUD)
+- Real-time AI chat with Ollama
+- Text-to-speech (Coqui TTS)
+- Speech-to-text (Whisper)
+- Event-driven architecture
+- Memory management (LangChain)
+- WebSocket real-time communication
+- RxJS reactive programming
+
+### ✅ Recently Completed
+- ✅ Message history loading
+- ✅ Error handling improvements
+- ✅ UI/UX polish (bubbles, indicators, dark mode)
+
+### ❌ Planned
+- Grammar correction UI
+- Vocabulary tracking
+- Progress dashboard
+- Conversation sharing
+
+---
+
+## 🧪 Testing
+
+### Backend Tests
+- ✅ **Unit Tests:** 59 tests (all passing)
+- ✅ **Integration Tests:** 17 tests (all passing)
+- ✅ **Total:** 76 tests
+
+### Frontend Tests
+- ⚠️ **Not yet implemented**
+
+---
+
+## 📖 Documentation Structure
+
+```
+docs/
+├── README.md (this file)
+├── Progress & Status/
+│   ├── COMPLETE_PROGRESS_SUMMARY.md
+│   ├── PROGRESS_UPDATE_2025-12-21-FINAL.md
+│   └── FRONTEND_PROGRESS.md
+├── Architecture & Design/
+│   ├── EVENT_DRIVEN_CONVERSATION_DESIGN.md
+│   ├── EVENT_REFERENCE.md
+│   ├── MEMORY_MANAGEMENT_DESIGN.md
+│   └── RXJS_EVALUATION.md
+├── Implementation/
+│   ├── AUTHENTICATION_IMPLEMENTATION.md
+│   ├── RXJS_REFACTOR_COMPLETE.md
+│   └── REPOSITORIES_IMPLEMENTATION.md
+└── Features & Planning/
+    ├── ADDITIONAL_FEATURES.md
+    ├── REQUIREMENTS_CLARIFICATION.md
+    └── IMPLEMENTATION_PLAN_V2.md
+```
+
+---
+
+## 🔗 Related Documents
+
+- **Backend Logs:** `backend/logs/`
+- **Database Migrations:** `backend/src/database/migrations/`
+- **Test Files:** `backend/src/**/*.test.ts`
+
+---
+
+## 📞 Support
+
+For questions or issues, refer to the relevant documentation above or check the implementation files.
+
+---
+
+**Last Updated:** December 21, 2025

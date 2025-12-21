@@ -1,4 +1,12 @@
-# Project Progress and Next Steps
+# Project Progress and Next Steps (Legacy)
+
+**⚠️ NOTE: See `PROGRESS_V2.md` for the latest progress report (2025-12-21)**
+
+This document contains the old progress report. The new comprehensive progress report with event-driven conversation system design is in `PROGRESS_V2.md`.
+
+---
+
+# Project Progress and Next Steps (Legacy)
 
 **Last Updated:** 2024-12-21  
 **Status:** Phase 2 Complete ✅ - All AI Services Integrated
