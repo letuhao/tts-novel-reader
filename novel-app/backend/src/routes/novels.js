@@ -85,8 +85,24 @@ router.post('/upload', upload.single('novel'), async (req, res, next) => {
     
     const filePath = req.file.path;
     
-    // Parse novel
-    const parsedNovel = await NovelParser.parseNovel(filePath);
+    // Parse novel with options (default: former regex parser, no LLM, no splitting)
+    // Parse novel với các tùy chọn (mặc định: parser regex cũ, không LLM, không chia)
+    // Note: FormData fields are strings, need to parse boolean
+    // Lưu ý: FormData fields là strings, cần parse boolean
+    const useLLMStr = req.body.useLLMStructureDetection;
+    const useLLM = useLLMStr === 'true' || useLLMStr === true; // Default: false (former parser)
+    const language = req.body.language || 'auto'; // Language hint: 'auto', 'en', 'vi', etc.
+    const splitLongParagraphsStr = req.body.splitLongParagraphs;
+    const splitLongParagraphs = splitLongParagraphsStr === 'true' || splitLongParagraphsStr === true; // Default: false
+    
+    console.log(`[Novels Route] 📤 Upload request - useLLM: ${useLLM}, language: ${language}, splitLongParagraphs: ${splitLongParagraphs}`);
+    console.log(`[Novels Route] 📤 Yêu cầu upload - useLLM: ${useLLM}, language: ${language}, splitLongParagraphs: ${splitLongParagraphs}`);
+    
+    const parsedNovel = await NovelParser.parseNovel(filePath, {
+      useLLMStructureDetection: useLLM,
+      language: language,
+      splitLongParagraphs: splitLongParagraphs // Default: false (former parser behavior)
+    });
     
     // Save to database
     const novel = await NovelModel.create(parsedNovel);
@@ -132,8 +148,17 @@ router.post('/process', async (req, res, next) => {
       });
     }
     
-    // Parse novel
-    const parsedNovel = await NovelParser.parseNovel(normalizedPath);
+    // Parse novel with options (default: former regex parser, no LLM, no splitting)
+    // Parse novel với các tùy chọn (mặc định: parser regex cũ, không LLM, không chia)
+    const useLLM = req.body.useLLMStructureDetection === true; // Default: false (former parser)
+    const language = req.body.language || 'auto'; // Language hint: 'auto', 'en', 'vi', etc.
+    const splitLongParagraphs = req.body.splitLongParagraphs === true; // Default: false
+    
+    const parsedNovel = await NovelParser.parseNovel(normalizedPath, {
+      useLLMStructureDetection: useLLM,
+      language: language,
+      splitLongParagraphs: splitLongParagraphs // Default: false (former parser behavior)
+    });
     
     // Save to database
     const novel = await NovelModel.create(parsedNovel);
@@ -313,7 +338,8 @@ router.get('/:id/chapters/:chapterNumber', async (req, res, next) => {
   }
 });
 
-// Delete novel
+// Delete novel (only from database, keeps files on disk)
+// Xóa novel (chỉ xóa khỏi database, giữ lại files trên disk)
 router.delete('/:id', async (req, res, next) => {
   try {
     const deleted = await NovelModel.delete(req.params.id);
@@ -326,7 +352,7 @@ router.delete('/:id', async (req, res, next) => {
     
     res.json({
       success: true,
-      message: 'Novel deleted successfully'
+      message: 'Novel deleted successfully (database only, files preserved)'
     });
   } catch (error) {
     next(error);

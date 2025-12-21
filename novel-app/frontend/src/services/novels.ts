@@ -24,9 +24,33 @@ export const getById = async (id: string): Promise<Novel> => {
   return response.data.novel
 }
 
-export const upload = async (file: File): Promise<Novel> => {
+export const upload = async (
+  file: File,
+  options?: {
+    useLLMStructureDetection?: boolean
+    language?: string
+  }
+): Promise<Novel> => {
   const formData = new FormData()
   formData.append('novel', file)
+  
+  // Add LLM structure detection options (default: disabled - use former regex parser)
+  // Thêm tùy chọn LLM structure detection (mặc định: tắt - dùng parser regex cũ)
+  if (options?.useLLMStructureDetection !== undefined) {
+    formData.append('useLLMStructureDetection', String(options.useLLMStructureDetection))
+  } else {
+    formData.append('useLLMStructureDetection', 'false') // Default: disabled - use former parser
+  }
+  
+  if (options?.language) {
+    formData.append('language', options.language)
+  } else {
+    formData.append('language', 'auto') // Default: auto-detect
+  }
+  
+  // Disable paragraph splitting (use former parser behavior)
+  // Tắt chia paragraph (dùng hành vi parser cũ)
+  formData.append('splitLongParagraphs', 'false')
   
   const response = await api.post<NovelResponse>('/novels/upload', formData, {
     headers: {
