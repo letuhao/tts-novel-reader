@@ -255,3 +255,5 @@ libraries/Vinorm
 models/coqui-XTTS-v2/
 
 tts/coqui-ai-TTS
+
+models/faster-whisper-large-v3/
