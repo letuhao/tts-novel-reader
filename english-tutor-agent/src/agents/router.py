@@ -79,10 +79,10 @@ def router_agent(state: TutorState) -> TutorState:
         agent_map = {
             "conversation": "tutor",
             "grammar": "grammar",
-            "pronunciation": "tutor",  # Will be pronunciation agent later
-            "exercise": "exercise",  # Route to exercise agent
-            "vocabulary": "tutor",
-            "translation": "tutor",
+            "pronunciation": "pronunciation",
+            "exercise": "exercise",
+            "vocabulary": "vocabulary",
+            "translation": "translation",
             "unknown": "tutor",
         }
         

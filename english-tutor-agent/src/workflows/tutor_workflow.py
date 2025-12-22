@@ -18,6 +18,8 @@ from src.agents.tutor import tutor_agent
 from src.agents.grammar import grammar_agent
 from src.agents.exercise import exercise_agent
 from src.agents.pronunciation import pronunciation_agent
+from src.agents.vocabulary import vocabulary_agent
+from src.agents.translation import translation_agent
 from src.agents.response_formatter import response_formatter_agent
 from src.agents.pipeline import pipeline_agent
 from src.services.checkpointer import get_checkpointer
@@ -72,6 +74,8 @@ def build_workflow(
     workflow.add_node("grammar", grammar_agent)
     workflow.add_node("exercise", exercise_agent)
     workflow.add_node("pronunciation", pronunciation_agent)
+    workflow.add_node("vocabulary", vocabulary_agent)
+    workflow.add_node("translation", translation_agent)
     workflow.add_node("response_formatter", response_formatter_agent)
     workflow.add_node("pipeline", pipeline_agent)
     
@@ -89,6 +93,10 @@ def build_workflow(
             return "exercise"
         elif intent == "pronunciation":
             return "pronunciation"
+        elif intent == "vocabulary":
+            return "vocabulary"
+        elif intent == "translation":
+            return "translation"
         else:
             return "tutor"
     
@@ -100,6 +108,8 @@ def build_workflow(
             "grammar": "grammar",
             "exercise": "exercise",
             "pronunciation": "pronunciation",
+            "vocabulary": "vocabulary",
+            "translation": "translation",
             "tutor": "tutor",
         }
     )
@@ -109,6 +119,8 @@ def build_workflow(
     workflow.add_edge("grammar", "response_formatter")
     workflow.add_edge("exercise", "response_formatter")
     workflow.add_edge("pronunciation", "response_formatter")
+    workflow.add_edge("vocabulary", "response_formatter")
+    workflow.add_edge("translation", "response_formatter")
     workflow.add_edge("tutor", "response_formatter")
     workflow.add_edge("response_formatter", "pipeline")
     workflow.add_edge("pipeline", END)

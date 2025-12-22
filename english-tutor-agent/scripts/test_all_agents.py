@@ -43,8 +43,9 @@ async def test_all_agents():
         ("Check my grammar: I go to school yesterday", "grammar", "grammar", "Grammar check"),
         ("I want an exercise to practice", "exercise", "exercise", "Exercise request"),
         ("Give me a grammar exercise", "exercise", "exercise", "Grammar exercise request"),
-        ("What does 'hello' mean?", "vocabulary", "tutor", "Vocabulary question"),
+        ("What does 'hello' mean?", "vocabulary", "vocabulary", "Vocabulary question"),
         ("How do I pronounce 'pronunciation'?", "pronunciation", "pronunciation", "Pronunciation practice"),
+        ("Translate 'hello' to Vietnamese", "translation", "translation", "Translation request"),
     ]
     
     results = []
@@ -102,6 +103,19 @@ async def test_all_agents():
                 target_text = feedback.get("target_text", "")
                 difficulty = feedback.get("difficulty_level", "")
                 print(f"    Pronunciation: target='{target_text}', level={difficulty}")
+            
+            if actual_agent == "vocabulary" and "vocabulary_data" in result:
+                vocab = result["vocabulary_data"]
+                target_word = vocab.get("target_word", "")
+                difficulty = vocab.get("difficulty_level", "")
+                print(f"    Vocabulary: word='{target_word}', level={difficulty}")
+            
+            if actual_agent == "translation" and "translation_data" in result:
+                trans = result["translation_data"]
+                source_lang = trans.get("source_language", "")
+                target_lang = trans.get("target_language", "")
+                translation = trans.get("translation", "")[:50]
+                print(f"    Translation: {source_lang}→{target_lang}, translation='{translation}...'")
             
             if has_response:
                 response_preview = result.get("tutor_response", "")[:80]

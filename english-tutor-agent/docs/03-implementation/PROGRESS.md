@@ -9,7 +9,7 @@
 ## 📊 Overall Progress
 
 **Completed Phases:** 5/10 (50%)  
-**Completed Agents:** 7/7 (100%)  
+**Completed Agents:** 9/9 (100%)  
 **Core Tests:** ✅ Passing (Agent + Pipeline + API)
 
 ---
@@ -117,6 +117,30 @@
 **Status:** 90% Complete (Text-based practice complete, audio feedback pending)  
 **File:** `src/agents/pronunciation.py`
 
+#### ✅ Vocabulary Agent
+- ✅ Word definitions và explanations
+- ✅ Synonym/Antonym identification
+- ✅ Usage examples in context
+- ✅ Word relationships (related words)
+- ✅ Difficulty level assessment
+- ✅ Vocabulary quizzes generation
+- ✅ Part of speech identification
+- ✅ Pronunciation guide
+
+**Status:** 100% Complete  
+**File:** `src/agents/vocabulary.py`
+
+#### ✅ Translation Agent
+- ✅ Bidirectional translation (EN↔VI)
+- ✅ Context-aware translation
+- ✅ Multiple translation options
+- ✅ Cultural context notes
+- ✅ Automatic direction detection
+- ✅ Source text extraction from natural language requests
+
+**Status:** 100% Complete  
+**File:** `src/agents/translation.py`
+
 ---
 
 ### Phase 5: Response Processing ✅
@@ -152,6 +176,10 @@
 ### Phase 4: Specialized Agents ✅
 - ✅ **Pronunciation Agent** - Complete (text-based practice)
   - Audio-based feedback pending (future enhancement)
+- ✅ **Vocabulary Agent** - Complete
+  - Word definitions, synonyms, examples, quizzes
+- ✅ **Translation Agent** - Complete
+  - Bidirectional EN↔VI translation with cultural context
 
 ### Phase 5: Response Processing
 ✅ Completed
@@ -203,6 +231,8 @@ english-tutor-agent/
 │   │   ├── grammar.py         ✅
 │   │   ├── exercise.py           ✅
 │   │   ├── pronunciation.py      ✅
+│   │   ├── vocabulary.py         ✅
+│   │   ├── translation.py        ✅
 │   │   ├── response_formatter.py ✅
 │   │   └── pipeline.py           ✅
 │   ├── workflows/
@@ -247,8 +277,9 @@ english-tutor-agent/
 - ✅ Test 4: Grammar exercise request - **PASS** (routing fixed)
 - ✅ Test 5: Vocabulary question - **PASS**
 - ✅ Test 6: Pronunciation practice - **PASS**
+- ✅ Test 7: Translation request - **PASS**
 
-**Pass Rate:** 6/6 (100%) (agent suite)
+**Pass Rate:** 7/7 (100%) (agent suite)
 
 ### Pipeline Test (TTS)
 - ✅ Full workflow with TTS pipeline - **PASS**
@@ -265,6 +296,8 @@ english-tutor-agent/
 - `scripts/test_grammar_agent.py` - Grammar agent tests
 - `scripts/test_exercise_agent.py` - Exercise agent tests
 - `scripts/test_pronunciation_agent.py` - Pronunciation agent tests
+- `scripts/test_vocabulary_agent.py` - Vocabulary agent tests
+- `scripts/test_translation_agent.py` - Translation agent tests
 - `scripts/test_pipeline.py` - Pipeline (TTS) tests
 - `scripts/test_api.py` - FastAPI endpoint tests
 
@@ -300,7 +333,7 @@ english-tutor-agent/
 | Metric | Value | Target |
 |--------|-------|--------|
 | Phases Completed | 5/10 | 10/10 |
-| Agents Implemented | 7/7 | 7/7 |
+| Agents Implemented | 9/9 | 9/9 |
 | Test Pass Rate | 100% | 100% |
 | Code Coverage | N/A | >80% |
 

@@ -193,8 +193,8 @@ async def router_agent_llm(state: TutorState) -> TutorState:
             "grammar": "grammar",
             "pronunciation": "tutor",  # Will be pronunciation agent later
             "exercise": "exercise",  # Route to exercise agent
-            "vocabulary": "tutor",
-            "translation": "tutor",
+            "vocabulary": "vocabulary",
+            "translation": "translation",
             "unknown": "tutor",
         }
         

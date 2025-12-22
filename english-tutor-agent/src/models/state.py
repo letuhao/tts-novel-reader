@@ -60,6 +60,12 @@ class TutorState(TypedDict, total=False):
     exercise_data: Optional[Dict[str, Any]]
     """Exercise data"""
     
+    vocabulary_data: Optional[Dict[str, Any]]
+    """Vocabulary data (definitions, synonyms, examples, etc.)"""
+    
+    translation_data: Optional[Dict[str, Any]]
+    """Translation data (source, target, alternatives, etc.)"""
+    
     # ==================== Pipeline Data ====================
     chunks: List[Dict[str, Any]]
     """Structured response chunks"""
