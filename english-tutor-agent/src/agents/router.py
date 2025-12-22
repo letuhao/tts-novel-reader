@@ -45,19 +45,30 @@ def router_agent(state: TutorState) -> TutorState:
         translation_keywords = ["translate", "translation", "meaning"]
         
         # Check keywords
-        if any(keyword in message_content for keyword in grammar_keywords):
-            intent = "grammar"
-            confidence = 0.9
-        elif any(keyword in message_content for keyword in pronunciation_keywords):
-            intent = "pronunciation"
-            confidence = 0.9
-        elif any(keyword in message_content for keyword in exercise_keywords):
+        grammar_hit = any(keyword in message_content for keyword in grammar_keywords)
+        pronunciation_hit = any(keyword in message_content for keyword in pronunciation_keywords)
+        exercise_hit = any(keyword in message_content for keyword in exercise_keywords)
+        vocabulary_hit = any(keyword in message_content for keyword in vocabulary_keywords)
+        translation_hit = any(keyword in message_content for keyword in translation_keywords)
+
+        # Special-case: user is asking for an *exercise about grammar*.
+        # If both "grammar" and "exercise/practice/quiz/test" appear, prefer the Exercise agent.
+        if grammar_hit and exercise_hit:
             intent = "exercise"
             confidence = 0.9
-        elif any(keyword in message_content for keyword in vocabulary_keywords):
+        elif grammar_hit:
+            intent = "grammar"
+            confidence = 0.9
+        elif pronunciation_hit:
+            intent = "pronunciation"
+            confidence = 0.9
+        elif exercise_hit:
+            intent = "exercise"
+            confidence = 0.9
+        elif vocabulary_hit:
             intent = "vocabulary"
             confidence = 0.85
-        elif any(keyword in message_content for keyword in translation_keywords):
+        elif translation_hit:
             intent = "translation"
             confidence = 0.85
         else:

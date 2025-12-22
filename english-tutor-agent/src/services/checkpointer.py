@@ -10,6 +10,14 @@ from langgraph.checkpoint.memory import MemorySaver
 
 logger = logging.getLogger(__name__)
 
+# Try to import Redis saver (custom)
+try:
+    from src.services.redis_saver import RedisSaver
+    REDIS_AVAILABLE = True
+except Exception:
+    REDIS_AVAILABLE = False
+    RedisSaver = None  # type: ignore
+
 # Try to import PostgreSQL checkpointer (may not be available)
 try:
     from langgraph.checkpoint.postgres import PostgresSaver
@@ -40,6 +48,9 @@ def _postgres_saver_supports_async() -> bool:
 
 def create_checkpointer(
     database_url: Optional[str] = None,
+    redis_url: Optional[str] = None,
+    backend: str = "auto",
+    namespace: str = "english_tutor_agent",
     force_memory: bool = False,
     require_async: bool = False,
 ):
@@ -63,16 +74,31 @@ def create_checkpointer(
     if force_memory:
         logger.info("Using MemorySaver checkpointer (forced)")
         return MemorySaver()
+
+    backend = (backend or "auto").lower().strip()
+
+    # Redis-backed saver (preferred for async workflows)
+    if backend in ("redis", "auto") and redis_url and REDIS_AVAILABLE:
+        try:
+            logger.info("Creating Redis checkpointer (RedisSaver)")
+            return RedisSaver(redis_url, namespace=namespace)
+        except Exception as e:
+            logger.warning(f"Failed to create RedisSaver: {e}. Falling back to next option.")
     
     # If database_url is provided and PostgreSQL is available, use PostgreSQL
-    if database_url and POSTGRES_AVAILABLE:
+    if backend in ("postgres", "auto") and database_url and POSTGRES_AVAILABLE:
         try:
             if require_async and not _postgres_saver_supports_async():
                 logger.warning(
                     "PostgresSaver async methods are not implemented in the installed version. "
-                    "Falling back to MemorySaver for async workflows. "
+                    "Falling back to RedisSaver (if configured) or MemorySaver for async workflows. "
                     "Use app.invoke() (sync) with PostgresSaver, or upgrade when async support is available."
                 )
+                if redis_url and REDIS_AVAILABLE:
+                    try:
+                        return RedisSaver(redis_url, namespace=namespace)
+                    except Exception:
+                        pass
                 return MemorySaver()
 
             logger.info(f"Creating PostgreSQL checkpointer")
@@ -109,6 +135,9 @@ def get_checkpointer(force_memory: bool = False, require_async: bool = False):
     """
     from src.config import get_settings
     settings = get_settings()
+    backend = getattr(settings, "checkpointer_backend", "auto")
+    redis_url = getattr(settings, "redis_url", None)
+    namespace = getattr(settings, "langgraph_checkpoint_namespace", "english_tutor_agent")
     
     # Use DATABASE_URL if available
     database_url = settings.database_url
@@ -117,5 +146,12 @@ def get_checkpointer(force_memory: bool = False, require_async: bool = False):
     if not database_url and settings.db_host != "localhost":
         database_url = f"postgresql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
     
-    return create_checkpointer(database_url, force_memory=force_memory, require_async=require_async)
+    return create_checkpointer(
+        database_url,
+        redis_url=redis_url,
+        backend=backend,
+        namespace=namespace,
+        force_memory=force_memory,
+        require_async=require_async,
+    )
 

@@ -29,8 +29,13 @@ async def test_all_agents():
     print(f"{Colors.BOLD}{Colors.BLUE}Comprehensive Agent Test{Colors.RESET}")
     print(f"{Colors.BOLD}{Colors.BLUE}{'=' * 60}{Colors.RESET}\n")
     
-    # Force MemorySaver for async tests: PostgresSaver currently doesn't implement async methods (aget_tuple, etc.)
-    app = build_workflow(use_memory_for_tests=True, require_async_checkpointer=True)
+    # Use checkpointer from environment (Redis if available, otherwise Memory)
+    # If REDIS_URL is set, it will use RedisSaver (async-capable)
+    app = build_workflow(use_memory_for_tests=False, require_async_checkpointer=True)
+    
+    # Check which checkpointer is being used
+    checkpointer_type = type(app.checkpointer).__name__
+    print(f"{Colors.BOLD}Checkpointer: {checkpointer_type}{Colors.RESET}\n")
     
     # Test cases: (message, expected_intent, expected_agent, description)
     test_cases = [

@@ -20,6 +20,25 @@ services:
     networks:
       - english-tutor-agent-network
 
+  # Redis (for Redis-backed LangGraph checkpointer / fast state persistence)
+  redis:
+    image: redis:7.4-alpine
+    container_name: english-tutor-agent-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      # host port is configurable (default 6380) but container listens on 6379
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - english-tutor-agent-network
+
   # Python LangGraph Agent Service
   agent-service:
     build:
@@ -43,6 +62,11 @@ services:
       DB_NAME: ${POSTGRES_DB:-english_tutor_agent}
       DB_USER: ${POSTGRES_USER:-english_tutor_agent}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-english_tutor_agent_password}
+
+      # Checkpointer (Redis-backed "MemorySaver" replacement)
+      CHECKPOINTER_BACKEND: ${CHECKPOINTER_BACKEND:-redis}  # auto|memory|postgres|redis
+      # Inside docker network, redis listens on 6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       
       # Ollama Configuration
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -62,6 +86,8 @@ services:
       - "${API_PORT:-11300}:11300"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - ./src:/app/src
@@ -93,6 +119,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
     driver: local
   # ollama_data:
   #   driver: local

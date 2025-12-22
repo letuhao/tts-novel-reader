@@ -45,6 +45,14 @@ class Settings(BaseSettings):
         alias="LANGGRAPH_CHECKPOINT_NAMESPACE"
     )
     langgraph_debug: bool = Field(default=False, alias="LANGGRAPH_DEBUG")
+
+    # Checkpointer backend selection
+    # - auto: prefer Redis if configured, else Postgres if available, else in-memory
+    # - redis: force Redis-backed saver
+    # - postgres: force PostgresSaver (sync-only unless async saver is available)
+    # - memory: force in-memory
+    checkpointer_backend: str = Field(default="auto", alias="CHECKPOINTER_BACKEND")
+    redis_url: Optional[str] = Field(default=None, alias="REDIS_URL")
     
     # Router Configuration
     router_mode: str = Field(default="hybrid", alias="ROUTER_MODE")  # "keyword", "llm", "hybrid"
