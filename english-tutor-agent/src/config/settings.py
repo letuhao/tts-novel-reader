@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     # Ollama
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="gemma3:12b", alias="OLLAMA_MODEL")
+    # Router model (lightweight) - used by LLM router/classifier
+    router_llm_model: str = Field(default="qwen3:1.7b", alias="ROUTER_LLM_MODEL")
     
     # TTS/STT
     tts_backend_url: str = Field(default="http://localhost:11111", alias="TTS_BACKEND_URL")

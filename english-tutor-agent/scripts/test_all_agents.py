@@ -44,6 +44,7 @@ async def test_all_agents():
         ("I want an exercise to practice", "exercise", "exercise", "Exercise request"),
         ("Give me a grammar exercise", "exercise", "exercise", "Grammar exercise request"),
         ("What does 'hello' mean?", "vocabulary", "tutor", "Vocabulary question"),
+        ("How do I pronounce 'pronunciation'?", "pronunciation", "pronunciation", "Pronunciation practice"),
     ]
     
     results = []
@@ -95,6 +96,12 @@ async def test_all_agents():
             if actual_agent == "exercise" and "exercise_data" in result:
                 exercise = result["exercise_data"]
                 print(f"    Exercise: {exercise.get('type')} on {exercise.get('topic')}")
+            
+            if actual_agent == "pronunciation" and "pronunciation_feedback" in result:
+                feedback = result["pronunciation_feedback"]
+                target_text = feedback.get("target_text", "")
+                difficulty = feedback.get("difficulty_level", "")
+                print(f"    Pronunciation: target='{target_text}', level={difficulty}")
             
             if has_response:
                 response_preview = result.get("tutor_response", "")[:80]

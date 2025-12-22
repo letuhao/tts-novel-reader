@@ -11,6 +11,28 @@ from src.agents.router_llm import router_agent_llm
 
 logger = logging.getLogger(__name__)
 
+def _is_ambiguous_multi_intent(message: str) -> tuple[bool, dict[str, bool]]:
+    """
+    Heuristic ambiguity detector.
+    If multiple intent keyword groups match, treat as ambiguous and force LLM routing.
+    """
+    text = (message or "").lower()
+    grammar_keywords = ["grammar", "grammatical", "error", "wrong", "correct", "mistake"]
+    pronunciation_keywords = ["pronunciation", "pronounce", "sound", "speak", "accent"]
+    exercise_keywords = ["exercise", "practice", "question", "quiz", "test"]
+    vocabulary_keywords = ["vocabulary", "word", "meaning", "definition"]
+    translation_keywords = ["translate", "translation"]
+
+    hits = {
+        "grammar": any(k in text for k in grammar_keywords),
+        "pronunciation": any(k in text for k in pronunciation_keywords),
+        "exercise": any(k in text for k in exercise_keywords),
+        "vocabulary": any(k in text for k in vocabulary_keywords),
+        "translation": any(k in text for k in translation_keywords),
+    }
+    hit_count = sum(1 for v in hits.values() if v)
+    return hit_count >= 2, hits
+
 
 async def router_agent_hybrid(state: TutorState) -> TutorState:
     """
@@ -43,6 +65,32 @@ async def router_agent_hybrid(state: TutorState) -> TutorState:
         message_content = last_message.content if hasattr(last_message, 'content') else str(last_message)
         
         logger.info(f"Hybrid routing message: {message_content[:100]}")
+
+        # Step 0: Detect ambiguous multi-intent cases and force LLM routing
+        ambiguous, hits = _is_ambiguous_multi_intent(message_content)
+        if ambiguous:
+            logger.info(f"Ambiguous multi-intent detected: {hits}. Forcing LLM routing.")
+            try:
+                llm_result = await router_agent_llm(state)
+                return {
+                    **llm_result,
+                    "metadata": {
+                        **llm_result.get("metadata", {}),
+                        "routing_method": "hybrid_llm_ambiguous",
+                        "keyword_hits": hits,
+                    },
+                }
+            except Exception as e:
+                logger.warning(f"LLM routing failed for ambiguous case: {e}, falling back to keyword routing")
+                keyword_result = router_agent(state)
+                return {
+                    **keyword_result,
+                    "metadata": {
+                        **keyword_result.get("metadata", {}),
+                        "routing_method": "hybrid_keyword_ambiguous_fallback",
+                        "keyword_hits": hits,
+                    },
+                }
         
         # Step 1: Try keyword-based routing (fast)
         keyword_result = router_agent(state)

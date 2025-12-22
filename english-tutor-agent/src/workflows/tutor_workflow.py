@@ -17,6 +17,7 @@ from src.agents.router_hybrid import router_agent_hybrid
 from src.agents.tutor import tutor_agent
 from src.agents.grammar import grammar_agent
 from src.agents.exercise import exercise_agent
+from src.agents.pronunciation import pronunciation_agent
 from src.agents.response_formatter import response_formatter_agent
 from src.agents.pipeline import pipeline_agent
 from src.services.checkpointer import get_checkpointer
@@ -70,6 +71,7 @@ def build_workflow(
     workflow.add_node("tutor", tutor_agent)
     workflow.add_node("grammar", grammar_agent)
     workflow.add_node("exercise", exercise_agent)
+    workflow.add_node("pronunciation", pronunciation_agent)
     workflow.add_node("response_formatter", response_formatter_agent)
     workflow.add_node("pipeline", pipeline_agent)
     
@@ -85,6 +87,8 @@ def build_workflow(
             return "grammar"
         elif intent == "exercise":
             return "exercise"
+        elif intent == "pronunciation":
+            return "pronunciation"
         else:
             return "tutor"
     
@@ -95,6 +99,7 @@ def build_workflow(
         {
             "grammar": "grammar",
             "exercise": "exercise",
+            "pronunciation": "pronunciation",
             "tutor": "tutor",
         }
     )
@@ -103,6 +108,7 @@ def build_workflow(
     # All agent responses go through formatter and TTS pipeline
     workflow.add_edge("grammar", "response_formatter")
     workflow.add_edge("exercise", "response_formatter")
+    workflow.add_edge("pronunciation", "response_formatter")
     workflow.add_edge("tutor", "response_formatter")
     workflow.add_edge("response_formatter", "pipeline")
     workflow.add_edge("pipeline", END)

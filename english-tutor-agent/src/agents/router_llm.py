@@ -6,15 +6,87 @@ Enhanced intent detection using Ollama LLM
 import logging
 import os
 import httpx
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from langchain_core.messages import HumanMessage
 from src.models.state import TutorState
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:12b")
+# -----------------------------
+# Robust JSON extraction/parsing
+# -----------------------------
+def _extract_json_object(text: str) -> Optional[str]:
+    """
+    Extract the first JSON object from a string using brace balancing.
+    Handles responses that include markdown fences or leading/trailing text.
+    """
+    if not text:
+        return None
+
+    # Prefer fenced ```json ... ``` blocks if present
+    fence_start = text.find("```")
+    if fence_start != -1:
+        # Try to find a json fence
+        lowered = text.lower()
+        json_fence = lowered.find("```json")
+        if json_fence != -1:
+            start = lowered.find("{", json_fence)
+            if start != -1:
+                # fall through to brace scan from that start
+                pass
+
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+
+    return None
+
+
+def _parse_router_json(json_str: str) -> Optional[dict]:
+    """Parse router JSON with a small amount of tolerance (e.g., trailing commas)."""
+    if not json_str:
+        return None
+    import json
+    import re
+
+    s = json_str.strip()
+
+    # Remove trailing commas before } or ]
+    s = re.sub(r",\s*([}\]])", r"\1", s)
+
+    # Some models may omit outer braces; attempt to wrap if it looks like key/value pairs
+    if not s.startswith("{") and '"intent"' in s:
+        s = "{\n" + s + "\n}"
+
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
 
 # Intent classification prompt template
 def get_intent_classification_prompt(message: str) -> str:
@@ -29,7 +101,7 @@ Available intents:
 - "vocabulary": Word meanings, definitions, vocabulary questions
 - "translation": Translation requests between English and other languages
 
-Respond with ONLY a JSON object in this exact format:
+Respond with ONLY a JSON object in this exact format (no markdown, no extra text, no trailing commas):
 {{
     "intent": "one of the intents above",
     "confidence": 0.0-1.0,
@@ -52,6 +124,11 @@ async def router_agent_llm(state: TutorState) -> TutorState:
         Updated state with intent and current_agent
     """
     try:
+        settings = get_settings()
+        # Allow env override for router model if desired, otherwise use Settings default
+        ollama_base_url = os.getenv("OLLAMA_BASE_URL", settings.ollama_base_url)
+        router_model = os.getenv("ROUTER_LLM_MODEL", settings.router_llm_model or settings.ollama_model)
+
         messages = state.get("messages", [])
         if not messages:
             logger.warning("No messages in state, defaulting to conversation")
@@ -74,18 +151,20 @@ async def router_agent_llm(state: TutorState) -> TutorState:
         # Call Ollama for intent classification
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{OLLAMA_BASE_URL}/api/chat",
+                f"{ollama_base_url}/api/chat",
                 json={
-                    "model": OLLAMA_MODEL,
+                    "model": router_model,
                     "messages": [
                         {
                             "role": "user",
                             "content": prompt
                         }
                     ],
+                    # Ask Ollama to enforce JSON output when supported
+                    "format": "json",
                     "stream": False,
                     "options": {
-                        "temperature": 0.3,  # Lower temperature for classification
+                        "temperature": 0.0,  # Deterministic for classification
                     }
                 },
             )
@@ -93,27 +172,20 @@ async def router_agent_llm(state: TutorState) -> TutorState:
             result = response.json()
             llm_response = result.get("message", {}).get("content", "")
         
-        # Parse JSON response
-        import json
-        import re
-        
-        # Extract JSON from response (handle markdown code blocks)
-        json_match = re.search(r'\{[^{}]*"intent"[^{}]*\}', llm_response, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(0)
-            try:
-                classification = json.loads(json_str)
-                intent = classification.get("intent", "conversation")
-                confidence = float(classification.get("confidence", 0.7))
-                reasoning = classification.get("reasoning", "")
-                
-                logger.info(f"LLM classification: intent={intent}, confidence={confidence}, reasoning={reasoning}")
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse LLM JSON response: {json_str}, falling back to keyword routing")
-                return await _fallback_keyword_routing(state, message_content)
-        else:
-            logger.warning(f"No JSON found in LLM response: {llm_response[:200]}, falling back to keyword routing")
+        # Parse JSON response (robust)
+        json_str = _extract_json_object(llm_response) or llm_response
+        classification = _parse_router_json(json_str)
+        if not classification:
+            logger.warning(
+                f"Failed to parse router JSON. model={router_model}. "
+                f"response_preview={llm_response[:200]!r}. Falling back to keyword routing"
+            )
             return await _fallback_keyword_routing(state, message_content)
+
+        intent = classification.get("intent", "conversation")
+        confidence = float(classification.get("confidence", 0.7))
+        reasoning = classification.get("reasoning", "")
+        logger.info(f"LLM classification: intent={intent}, confidence={confidence}, reasoning={reasoning}")
         
         # Map intent to agent
         agent_map = {
@@ -141,6 +213,7 @@ async def router_agent_llm(state: TutorState) -> TutorState:
                 **state.get("metadata", {}),
                 "routing_method": "llm",
                 "routing_reasoning": reasoning,
+                "router_model": router_model,
             }
         }
         

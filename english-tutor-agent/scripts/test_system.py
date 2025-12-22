@@ -209,7 +209,8 @@ async def test_hybrid_router():
     try:
         from src.agents.router_hybrid import router_agent_hybrid
         
-        test_message = "Can you help me with English?"
+        # Ambiguous multi-intent message should force LLM routing
+        test_message = "What does this word mean? Please translate it to Vietnamese."
         state: TutorState = {
             "messages": [HumanMessage(content=test_message)],
             "conversation_id": "test_hybrid",
@@ -220,10 +221,15 @@ async def test_hybrid_router():
         intent = result.get("intent")
         confidence = result.get("routing_confidence", 0)
         method = result.get("metadata", {}).get("routing_method", "unknown")
-        
-        print_test("Hybrid router", True,
-                  f"Intent: {intent}, Confidence: {confidence:.2f}, Method: {method}")
-        return True
+
+        # For ambiguous prompts, hybrid router should go through LLM path
+        ok = method.startswith("hybrid_llm")
+        print_test(
+            "Hybrid router",
+            ok,
+            f"Intent: {intent}, Confidence: {confidence:.2f}, Method: {method}",
+        )
+        return ok
     except Exception as e:
         print_test("Hybrid router", False, str(e))
         import traceback
