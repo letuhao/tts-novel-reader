@@ -25,6 +25,7 @@ export class ConversationMemoryService {
       // Check if service already exists
       let service = memoryServiceRegistry.get(conversationId);
       if (service) {
+        logger.debug({ conversationId, source: 'cache' }, '📚 [MEMORY] Using existing memory service');
         return service;
       }
 
@@ -40,8 +41,8 @@ export class ConversationMemoryService {
         model: process.env.OLLAMA_MODEL || 'gemma3:12b',
       };
 
-      service = createMemoryService(config);
-      memoryServiceRegistry.getOrCreate(config);
+      logger.debug({ conversationId, strategy: config.strategy }, '📚 [MEMORY] Creating new memory service');
+      service = memoryServiceRegistry.getOrCreate(config);
 
       // Load existing messages into memory
       await this.loadHistoryIntoMemory(conversationId, service);
@@ -69,6 +70,7 @@ export class ConversationMemoryService {
       });
 
       // Load messages into memory
+      const loadedPairs: Array<{ user: string; assistant: string }> = [];
       for (const message of result.items) {
         if (message.role === 'user') {
           // Find the next assistant message
@@ -78,6 +80,16 @@ export class ConversationMemoryService {
 
           if (nextMessage) {
             await service.saveContext(message.content, nextMessage.content);
+            loadedPairs.push({
+              user: message.content.substring(0, 50),
+              assistant: nextMessage.content.substring(0, 50),
+            });
+          } else {
+            logger.debug({ 
+              conversationId, 
+              sequenceNumber: message.sequenceNumber,
+              userMessage: message.content.substring(0, 50)
+            }, '📚 [MEMORY] User message without matching assistant (will be saved after response)');
           }
         }
       }
@@ -86,6 +98,8 @@ export class ConversationMemoryService {
         {
           conversationId,
           messageCount: result.items.length,
+          loadedPairs: loadedPairs.length,
+          pairs: loadedPairs,
         },
         'Loaded conversation history into memory'
       );

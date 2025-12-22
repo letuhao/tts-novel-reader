@@ -352,6 +352,16 @@ export class ConversationService {
       const memoryContext = await conversationMemoryService.getMemoryContext(conversationId);
 
       if (memoryContext && memoryContext.messages.length > 0) {
+        logger.debug({ 
+          conversationId, 
+          source: 'memory',
+          messageCount: memoryContext.messages.length,
+          messages: memoryContext.messages.map(m => ({ 
+            role: m.role, 
+            content: m.content.substring(0, 50),
+            contentLength: m.content.length
+          }))
+        }, '📚 [HISTORY] Returning history from memory context');
         return memoryContext.messages.map((msg) => ({
           role: msg.role,
           content: msg.content,
@@ -364,6 +374,18 @@ export class ConversationService {
         orderBy: 'sequence_number',
         orderDirection: 'ASC',
       });
+
+      logger.debug({ 
+        conversationId, 
+        source: 'database',
+        messageCount: messagesResult.items.length,
+        messages: messagesResult.items.map(m => ({ 
+          role: m.role, 
+          sequenceNumber: m.sequenceNumber,
+          content: m.content.substring(0, 50),
+          contentLength: m.content.length
+        }))
+      }, '📚 [HISTORY] Returning history from database (memory context empty)');
 
       return messagesResult.items.map((msg) => ({
         role: msg.role,

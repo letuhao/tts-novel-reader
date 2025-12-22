@@ -1,0 +1,43 @@
+# LangGraph & LangChain
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+
+# API Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=13.0
+
+# Database
+asyncpg>=0.30.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# LangGraph Checkpointing
+langgraph-checkpoint-postgres>=0.0.3
+
+# HTTP Client
+httpx>=0.27.0
+aiohttp>=3.10.0
+
+# Configuration
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+
+# Logging
+structlog>=24.2.0
+python-json-logger>=2.0.0
+
+# Utilities
+python-multipart>=0.0.9
+
+# Optional: LangSmith (for tracing)
+# langsmith>=0.1.0
+

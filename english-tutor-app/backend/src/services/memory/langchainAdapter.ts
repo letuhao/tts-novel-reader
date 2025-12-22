@@ -132,6 +132,20 @@ export class LangChainMemoryAdapter implements MemoryService {
   async loadMemoryVariables(): Promise<MemoryContext> {
     try {
       const history = this.buffer.getMessages();
+      logger.debug({ 
+        conversationId: this.config.conversationId,
+        bufferMessageCount: history.length,
+        bufferMessages: history.map((msg, idx) => {
+          const content = typeof msg.content === 'string' ? msg.content : String(msg.content);
+          return {
+            index: idx,
+            type: msg.constructor.name,
+            content: content.substring(0, 50),
+            contentLength: content.length
+          };
+        })
+      }, '📚 [MEMORY] Loading memory variables from buffer');
+      
       const messages: MemoryMessage[] = history.map((msg) => {
         let content = '';
         let role: 'user' | 'assistant' | 'system' = 'user';
@@ -162,6 +176,18 @@ export class LangChainMemoryAdapter implements MemoryService {
 
       // Get token count
       const tokenCount = this.buffer.getTokenCount();
+
+      logger.debug({ 
+        conversationId: this.config.conversationId,
+        messageCount: messages.length,
+        messages: messages.map(m => ({ 
+          role: m.role, 
+          content: m.content.substring(0, 50),
+          contentLength: m.content.length
+        })),
+        tokenCount,
+        hasSummary: !!summary
+      }, '📚 [MEMORY] Memory context loaded');
 
       const result: MemoryContext = {
         messages,

@@ -55,7 +55,9 @@ class MemoryServiceRegistry {
     if (!this.services.has(key)) {
       const service = createMemoryService(config);
       this.services.set(key, service);
-      logger.debug({ conversationId: config.conversationId }, 'Created new memory service');
+      logger.debug({ conversationId: config.conversationId, totalServices: this.services.size }, 'Created new memory service');
+    } else {
+      logger.debug({ conversationId: config.conversationId, totalServices: this.services.size }, 'Reusing existing memory service');
     }
 
     return this.services.get(key)!;

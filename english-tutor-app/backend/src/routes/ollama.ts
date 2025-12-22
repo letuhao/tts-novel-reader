@@ -175,6 +175,12 @@ router.post('/chat', authenticate, async (req: Request, res: Response): Promise<
         role: msg.role as 'system' | 'user' | 'assistant',
         content: msg.content,
       }));
+      logger.debug({ 
+        conversationId, 
+        historySource: 'provided',
+        historyLength: history.length,
+        history: history.map(h => ({ role: h.role, content: h.content.substring(0, 50) }))
+      }, '📚 [MEMORY] Using provided conversation history');
     } else {
       // Get history from memory service
       const memoryHistory = await conversationService.getConversationHistory(conversationId);
@@ -182,6 +188,12 @@ router.post('/chat', authenticate, async (req: Request, res: Response): Promise<
         role: msg.role as 'system' | 'user' | 'assistant',
         content: msg.content,
       }));
+      logger.debug({ 
+        conversationId, 
+        historySource: 'memory',
+        historyLength: history.length,
+        history: history.map(h => ({ role: h.role, content: h.content.substring(0, 50) }))
+      }, '📚 [MEMORY] Loaded conversation history from memory');
     }
 
     // Add current user message
@@ -189,6 +201,16 @@ router.post('/chat', authenticate, async (req: Request, res: Response): Promise<
       role: 'user',
       content: message,
     });
+    
+    logger.debug({ 
+      conversationId,
+      finalHistoryLength: history.length,
+      finalHistory: history.map(h => ({ 
+        role: h.role, 
+        content: h.content.substring(0, 100),
+        contentLength: h.content.length
+      }))
+    }, '📚 [MEMORY] Final history sent to Ollama');
 
     // Performance timer for entire request
     const requestTimer = new PerformanceTimer('Request Start');
