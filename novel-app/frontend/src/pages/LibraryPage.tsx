@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen } from 'lucide-react'
 import { useNovelStore } from '../store/useNovelStore'
@@ -7,10 +7,20 @@ import NovelUpload from '../components/Library/NovelUpload'
 import SearchBar from '../components/Library/SearchBar'
 import Loading from '../components/Common/Loading'
 import ErrorMessage from '../components/Common/ErrorMessage'
+import ConfirmDialog from '../components/Common/ConfirmDialog'
 
 function LibraryPage() {
   const navigate = useNavigate()
-  const { novels, loading, error, fetchNovels } = useNovelStore()
+  const { novels, loading, error, fetchNovels, deleteNovel } = useNovelStore()
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    isOpen: boolean
+    novelId: string | null
+    novelTitle: string
+  }>({
+    isOpen: false,
+    novelId: null,
+    novelTitle: '',
+  })
 
   useEffect(() => {
     fetchNovels()
@@ -18,6 +28,33 @@ function LibraryPage() {
 
   const handleNovelSelect = (novelId: string) => {
     navigate(`/novel/${novelId}`)
+  }
+
+  const handleDeleteClick = (novelId: string) => {
+    const novel = novels.find((n) => n.id === novelId)
+    if (novel) {
+      setDeleteConfirm({
+        isOpen: true,
+        novelId: novelId,
+        novelTitle: novel.title,
+      })
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (deleteConfirm.novelId) {
+      try {
+        await deleteNovel(deleteConfirm.novelId)
+        setDeleteConfirm({ isOpen: false, novelId: null, novelTitle: '' })
+      } catch (error) {
+        // Error is handled by the store
+        console.error('Failed to delete novel:', error)
+      }
+    }
+  }
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirm({ isOpen: false, novelId: null, novelTitle: '' })
   }
 
   return (
@@ -72,12 +109,25 @@ function LibraryPage() {
                   key={novel.id}
                   novel={novel}
                   onSelect={() => handleNovelSelect(novel.id)}
+                  onDelete={handleDeleteClick}
                 />
               ))}
             </div>
           )}
         </>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteConfirm.isOpen}
+        title="Delete Novel"
+        message={`Are you sure you want to delete "${deleteConfirm.novelTitle}"? This will remove it from your library, but audio files and metadata will be kept on your hard drive.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDeleteConfirm}
+        onCancel={handleDeleteCancel}
+        variant="danger"
+      />
     </div>
   )
 }

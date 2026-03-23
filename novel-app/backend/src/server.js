@@ -18,6 +18,7 @@ import workerRoutes from './routes/worker.js';
 import generationRoutes from './routes/generation.js';
 import roleDetectionRoutes from './routes/roleDetection.js';
 import roleDetectionWorkerRoutes from './routes/roleDetectionWorker.js';
+import voiceMappingRoutes from './routes/voiceMapping.js';
 
 // Import TTS config (will be used after dotenv loads)
 // Import cấu hình TTS (sẽ được sử dụng sau khi dotenv tải)
@@ -161,6 +162,7 @@ app.use('/api/worker', workerRoutes);
 app.use('/api/generation', generationRoutes);  // Generation progress routes
 app.use('/api/role-detection', roleDetectionRoutes);  // Role detection routes
 app.use('/api/role-detection-worker', roleDetectionWorkerRoutes);  // Role detection worker routes
+app.use('/api/voice-mapping', voiceMappingRoutes);  // Enhanced voice mapping routes
 
 // Error handling middleware
 app.use((err, req, res, next) => {

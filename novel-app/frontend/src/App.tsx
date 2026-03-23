@@ -4,6 +4,7 @@ import ErrorBoundary from './components/Common/ErrorBoundary'
 import LibraryPage from './pages/LibraryPage'
 import ReaderPage from './pages/ReaderPage'
 import SettingsPage from './pages/SettingsPage'
+import VoiceManagementPage from './pages/VoiceManagementPage'
 
 function App() {
   return (
@@ -32,6 +33,14 @@ function App() {
               element={
                 <ErrorBoundary>
                   <SettingsPage />
+                </ErrorBoundary>
+              } 
+            />
+            <Route 
+              path="/voice-management" 
+              element={
+                <ErrorBoundary>
+                  <VoiceManagementPage />
                 </ErrorBoundary>
               } 
             />

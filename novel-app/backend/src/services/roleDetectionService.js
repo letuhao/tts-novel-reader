@@ -66,7 +66,7 @@ export class RoleDetectionService {
         try {
           // Use full chapter context for all batches (helps with consistency)
           // Sử dụng toàn bộ context chapter cho tất cả batches (giúp nhất quán)
-          const batchRoleMap = await this._detectRolesBatch(batchParagraphs, chapterContext);
+          const batchRoleMap = await this._detectRolesBatch(batchParagraphs, chapterContext, options);
           
           // Map batch indices (0-based within batch) to global indices (0-based in full paragraphs array)
           // Map các chỉ số batch (0-based trong batch) sang chỉ số global (0-based trong mảng paragraphs đầy đủ)
@@ -105,7 +105,7 @@ export class RoleDetectionService {
       // Small chapter - process all at once
       // Chapter nhỏ - xử lý tất cả cùng lúc
       console.log(`[RoleDetectionService] Processing ${paragraphs.length} paragraphs in single batch...`);
-      roleMap = await this._detectRolesBatch(paragraphs, chapterContext);
+      roleMap = await this._detectRolesBatch(paragraphs, chapterContext, options);
     }
 
     // Step 2: Map to voice IDs if requested
@@ -126,10 +126,11 @@ export class RoleDetectionService {
    * 
    * @param {Array<string>} paragraphs - Paragraph texts
    * @param {string} chapterContext - Full chapter context
+   * @param {Object} options - Detection options (maxMaleCharacters, maxFemaleCharacters)
    * @returns {Promise<Object>} Role map {index: role}
    */
-  async _detectRolesBatch(paragraphs, chapterContext = '') {
-    const prompt = this._buildClassificationPrompt(paragraphs, chapterContext);
+  async _detectRolesBatch(paragraphs, chapterContext = '', options = {}) {
+    const prompt = this._buildClassificationPrompt(paragraphs, chapterContext, options);
 
     try {
       if (!this.model) {
@@ -207,9 +208,10 @@ export class RoleDetectionService {
    * 
    * @param {Array<string>} paragraphs - Paragraph texts
    * @param {string} chapterContext - Chapter context
+   * @param {Object} options - Options (maxMaleCharacters, maxFemaleCharacters)
    * @returns {string} Prompt text
    */
-  _buildClassificationPrompt(paragraphs, chapterContext = '') {
+  _buildClassificationPrompt(paragraphs, chapterContext = '', options = {}) {
     // Truncate paragraphs for prompt (keep first 200 chars each)
     const paragraphsText = paragraphs.map((para, idx) => {
       const truncated = para.length > 200 ? para.substring(0, 200) + '...' : para;
@@ -220,12 +222,29 @@ export class RoleDetectionService {
       ? chapterContext.substring(0, 3000) + '...' 
       : chapterContext;
 
-    return `Bạn là hệ thống phân loại vai diễn cho tiểu thuyết tiếng Việt.
+    // Build dynamic role list based on max characters
+    // Xây dựng danh sách vai diễn động dựa trên số nhân vật tối đa
+    const maxMaleCharacters = options?.maxMaleCharacters || 10;
+    const maxFemaleCharacters = options?.maxFemaleCharacters || 10;
+    
+    const roles = ['narrator'];
+    for (let i = 1; i <= maxMaleCharacters; i++) {
+      roles.push(`male_${i}`);
+    }
+    for (let i = 1; i <= maxFemaleCharacters; i++) {
+      roles.push(`female_${i}`);
+    }
+    
+    const rolesList = roles.join(', ');
+    
+    return `Bạn là hệ thống phân loại vai diễn cho tiểu thuyết.
 
-Nhiệm vụ: Phân loại mỗi đoạn văn sau thành một trong ba loại:
+Nhiệm vụ: Phân loại mỗi đoạn văn sau thành một trong các loại sau:
 - narrator: Văn bản dẫn chuyện, mô tả, tường thuật của tác giả (không có đối thoại trực tiếp)
-- male: Lời nói, suy nghĩ, hoặc hành động của nhân vật nam
-- female: Lời nói, suy nghĩ, hoặc hành động của nhân vật nữ
+- male_1, male_2, male_3, ...: Lời nói, suy nghĩ, hoặc hành động của nhân vật nam (phân biệt các nhân vật nam khác nhau)
+- female_1, female_2, female_3, ...: Lời nói, suy nghĩ, hoặc hành động của nhân vật nữ (phân biệt các nhân vật nữ khác nhau)
+
+Các vai diễn có sẵn: ${rolesList}
 
 Ngữ cảnh chapter (để tham khảo, phân tích xem ai đang nói):
 ${contextText || 'Không có ngữ cảnh'}
@@ -236,11 +255,17 @@ ${paragraphsText}
 Yêu cầu:
 1. Phân tích từng đoạn văn dựa trên ngữ cảnh
 2. Xác định xem đoạn văn là dẫn chuyện hay lời/suy nghĩ/hành động nhân vật
-3. Nếu là nhân vật, xác định giới tính (nam/nữ) từ ngữ cảnh, đại từ, tên nhân vật
-4. Trả lời DẠNG JSON duy nhất, không có giải thích thêm
+3. Nếu là nhân vật, xác định giới tính (nam/nữ) và phân biệt các nhân vật khác nhau:
+   - Nhân vật nam đầu tiên → male_1
+   - Nhân vật nam thứ hai → male_2
+   - Nhân vật nữ đầu tiên → female_1
+   - Nhân vật nữ thứ hai → female_2
+   - (và tiếp tục cho các nhân vật tiếp theo)
+4. Giữ tính nhất quán: cùng một nhân vật trong chapter phải có cùng vai diễn (ví dụ: cùng là male_1)
+5. Trả lời DẠNG JSON duy nhất, không có giải thích thêm
 
 Định dạng trả lời (JSON):
-{"1": "narrator", "2": "male", "3": "female", "4": "narrator", ...}
+{"1": "narrator", "2": "male_1", "3": "female_1", "4": "male_2", "5": "narrator", ...}
 
 Chỉ trả lời JSON, không có văn bản khác.`;
   }
@@ -261,12 +286,16 @@ Chỉ trả lời JSON, không có văn bản khác.`;
       try {
         const idx = parseInt(key) - 1; // Convert 1-based to 0-based
         if (idx >= 0 && idx < numParagraphs) {
-          const role = String(value).toLowerCase().trim();
-          if (['narrator', 'male', 'female'].includes(role)) {
-            roleMap[idx] = role;
-          } else {
-            roleMap[idx] = 'narrator'; // Default fallback
-          }
+        const role = String(value).toLowerCase().trim();
+        // Accept narrator, male, female (backward compatibility), and male_1, male_2, etc.
+        // Chấp nhận narrator, male, female (tương thích ngược), và male_1, male_2, etc.
+        if (role === 'narrator' || 
+            role === 'male' || role === 'female' ||
+            role.match(/^male_\d+$/) || role.match(/^female_\d+$/)) {
+          roleMap[idx] = role;
+        } else {
+          roleMap[idx] = 'narrator'; // Default fallback
+        }
         }
       } catch (error) {
         // Skip invalid entries

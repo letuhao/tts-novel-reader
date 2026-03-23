@@ -85,8 +85,24 @@ router.post('/upload', upload.single('novel'), async (req, res, next) => {
     
     const filePath = req.file.path;
     
-    // Parse novel
-    const parsedNovel = await NovelParser.parseNovel(filePath);
+    // Parse novel with options (default: former regex parser, no LLM, no splitting)
+    // Parse novel với các tùy chọn (mặc định: parser regex cũ, không LLM, không chia)
+    // Note: FormData fields are strings, need to parse boolean
+    // Lưu ý: FormData fields là strings, cần parse boolean
+    const useLLMStr = req.body.useLLMStructureDetection;
+    const useLLM = useLLMStr === 'true' || useLLMStr === true; // Default: false (former parser)
+    const language = req.body.language || 'auto'; // Language hint: 'auto', 'en', 'vi', etc.
+    const splitLongParagraphsStr = req.body.splitLongParagraphs;
+    const splitLongParagraphs = splitLongParagraphsStr === 'true' || splitLongParagraphsStr === true; // Default: false
+    
+    console.log(`[Novels Route] 📤 Upload request - useLLM: ${useLLM}, language: ${language}, splitLongParagraphs: ${splitLongParagraphs}`);
+    console.log(`[Novels Route] 📤 Yêu cầu upload - useLLM: ${useLLM}, language: ${language}, splitLongParagraphs: ${splitLongParagraphs}`);
+    
+    const parsedNovel = await NovelParser.parseNovel(filePath, {
+      useLLMStructureDetection: useLLM,
+      language: language,
+      splitLongParagraphs: splitLongParagraphs // Default: false (former parser behavior)
+    });
     
     // Save to database
     const novel = await NovelModel.create(parsedNovel);
@@ -132,8 +148,17 @@ router.post('/process', async (req, res, next) => {
       });
     }
     
-    // Parse novel
-    const parsedNovel = await NovelParser.parseNovel(normalizedPath);
+    // Parse novel with options (default: former regex parser, no LLM, no splitting)
+    // Parse novel với các tùy chọn (mặc định: parser regex cũ, không LLM, không chia)
+    const useLLM = req.body.useLLMStructureDetection === true; // Default: false (former parser)
+    const language = req.body.language || 'auto'; // Language hint: 'auto', 'en', 'vi', etc.
+    const splitLongParagraphs = req.body.splitLongParagraphs === true; // Default: false
+    
+    const parsedNovel = await NovelParser.parseNovel(normalizedPath, {
+      useLLMStructureDetection: useLLM,
+      language: language,
+      splitLongParagraphs: splitLongParagraphs // Default: false (former parser behavior)
+    });
     
     // Save to database
     const novel = await NovelModel.create(parsedNovel);
@@ -203,11 +228,18 @@ router.get('/:id/chapters', async (req, res, next) => {
       // Kiểm tra xem tất cả chapters có cùng số không (vấn đề parsing)
       const allChapterNumbers = sortedChapters.map(ch => ch.chapterNumber || ch.chapter_number);
       const uniqueNumbers = [...new Set(allChapterNumbers)];
-      if (uniqueNumbers.length === 1) {
+      // Only warn if there are MULTIPLE chapters but they all have the same number
+      // Chỉ cảnh báo nếu có NHIỀU chapters nhưng tất cả đều có cùng số
+      if (uniqueNumbers.length === 1 && sortedChapters.length > 1) {
         console.error(`[Novels Route] ❌ CRITICAL: All ${sortedChapters.length} chapters have the same chapterNumber: ${uniqueNumbers[0]}`);
         console.error(`[Novels Route] ❌ QUAN TRỌNG: Tất cả ${sortedChapters.length} chapters đều có cùng chapterNumber: ${uniqueNumbers[0]}`);
         console.error(`[Novels Route] ❌ This indicates a parsing error. The novel file may need to be re-parsed.`);
         console.error(`[Novels Route] ❌ Điều này cho thấy lỗi parsing. File novel có thể cần được parse lại.`);
+      } else if (sortedChapters.length === 1 && uniqueNumbers[0] === 1) {
+        // Single chapter with number 1 is normal (novel has no chapter markers)
+        // Một chapter với số 1 là bình thường (novel không có chapter markers)
+        console.log(`[Novels Route] ℹ️  Single chapter detected (no chapter markers found in novel)`);
+        console.log(`[Novels Route] ℹ️  Phát hiện một chapter (không tìm thấy chapter markers trong novel)`);
       }
     }
     const gaps = [];
@@ -306,7 +338,8 @@ router.get('/:id/chapters/:chapterNumber', async (req, res, next) => {
   }
 });
 
-// Delete novel
+// Delete novel (only from database, keeps files on disk)
+// Xóa novel (chỉ xóa khỏi database, giữ lại files trên disk)
 router.delete('/:id', async (req, res, next) => {
   try {
     const deleted = await NovelModel.delete(req.params.id);
@@ -319,7 +352,7 @@ router.delete('/:id', async (req, res, next) => {
     
     res.json({
       success: true,
-      message: 'Novel deleted successfully'
+      message: 'Novel deleted successfully (database only, files preserved)'
     });
   } catch (error) {
     next(error);

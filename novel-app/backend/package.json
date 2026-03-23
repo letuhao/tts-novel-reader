@@ -10,7 +10,9 @@
     "clean:all": "node scripts/clean_all.js && node scripts/clean_storage.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "start:silent": "python start_backend.py",
     "stop:silent": "python stop_backend.py"
   },
@@ -23,19 +25,20 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "better-sqlite3": "^11.3.0",
+    "compression": "^1.7.4",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "better-sqlite3": "^11.3.0",
-    "axios": "^1.6.2",
-    "uuid": "^9.0.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
     "mime-types": "^2.1.35",
     "multer": "^1.4.5-lts.1",
-    "compression": "^1.7.4",
-    "helmet": "^7.1.0"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "vitest": "^1.6.1"
   },
   "engines": {
     "node": ">=18.0.0"

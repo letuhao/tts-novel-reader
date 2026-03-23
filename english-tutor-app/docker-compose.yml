@@ -1,0 +1,71 @@
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: english-tutor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-english_tutor}
+      POSTGRES_USER: ${POSTGRES_USER:-english_tutor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-english_tutor_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-english_tutor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - english-tutor-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: english-tutor-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 11200
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-english_tutor}:${POSTGRES_PASSWORD:-english_tutor_password}@postgres:5432/${POSTGRES_DB:-english_tutor}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      TTS_BACKEND_URL: ${TTS_BACKEND_URL:-http://host.docker.internal:11111}
+      STT_BACKEND_URL: ${STT_BACKEND_URL:-http://host.docker.internal:11210}
+    ports:
+      - "${BACKEND_PORT:-11200}:11200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - english-tutor-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: english-tutor-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:11200/api}
+    ports:
+      - "${FRONTEND_PORT:-11201}:80"
+    depends_on:
+      - backend
+    networks:
+      - english-tutor-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  english-tutor-network:
+    driver: bridge
+

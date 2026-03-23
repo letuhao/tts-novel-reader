@@ -98,6 +98,38 @@ export default class Database {
       CREATE INDEX IF NOT EXISTS idx_paragraphs_number ON paragraphs(novel_id, chapter_number, paragraph_number);
     `);
     
+    // Create novel voice mappings table (for per-novel voice configuration)
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS novel_voice_mappings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        novel_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        role TEXT NOT NULL,
+        voice_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+        UNIQUE(novel_id, model, role)
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_novel_voice_mappings_novel ON novel_voice_mappings(novel_id);
+      CREATE INDEX IF NOT EXISTS idx_novel_voice_mappings_model ON novel_voice_mappings(novel_id, model);
+    `);
+    
+    // Create novel voice configs table (for assignment strategy)
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS novel_voice_configs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        novel_id TEXT NOT NULL UNIQUE,
+        assignment_strategy TEXT NOT NULL DEFAULT 'round-robin',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_novel_voice_configs_novel ON novel_voice_configs(novel_id);
+    `);
+    
     // Migration: Add role and voice_id columns if they don't exist (for existing databases)
     // Check if columns exist first, then add if missing
     try {

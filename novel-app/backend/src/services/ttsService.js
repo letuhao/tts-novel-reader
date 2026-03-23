@@ -282,6 +282,26 @@ export class TTSService {
           if (requestBody.ref_text) {
             console.log(`[TTS Service] [generateAudio] [DEBUG]   - ref_text: "${requestBody.ref_text.substring(0, 30)}..."`);
           }
+        } else if (model === 'coqui-xtts-v2' || model === 'coqui-tts' || model === 'xtts-v2') {
+          // Coqui XTTS-v2 parameters / Tham số Coqui XTTS-v2
+          requestBody.speaker = mappedVoice;  // Use mapped voice (speaker name) / Sử dụng giọng đã ánh xạ (tên speaker)
+          requestBody.language = options.language || 'en';  // Language code (default: en)
+          // Optional: speaker_wav for voice cloning / Tùy chọn: speaker_wav cho nhân bản giọng
+          if (refAudioPath) {
+            requestBody.speaker_wav = refAudioPath;
+          }
+          
+          // Debug: Log request body for coqui-xtts-v2 / Debug: Log request body cho coqui-xtts-v2
+          console.log(`[TTS Service] [generateAudio] [DEBUG] Coqui XTTS-v2 Request Body:`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - text: "${requestBody.text.substring(0, 50)}..." (${requestBody.text.length} chars)`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - model: ${requestBody.model}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - speaker: "${requestBody.speaker}"`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - language: ${requestBody.language}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - store: ${requestBody.store}`);
+          console.log(`[TTS Service] [generateAudio] [DEBUG]   - return_audio: ${requestBody.return_audio}`);
+          if (requestBody.speaker_wav) {
+            console.log(`[TTS Service] [generateAudio] [DEBUG]   - speaker_wav: ${requestBody.speaker_wav}`);
+          }
         } else if (model === 'dia') {
           // Dia parameters / Tham số Dia
           requestBody.temperature = temperature;

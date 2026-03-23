@@ -8,6 +8,8 @@ interface ChapterContentProps {
   onParagraphClick?: (paragraphNumber: number) => void
   paragraphRefs?: React.MutableRefObject<Map<number, HTMLParagraphElement>>
   showRoleIndicator?: boolean  // Whether to show role indicators
+  novelId?: string | null      // Novel ID for voice resolution
+  model?: string | null         // TTS model name for voice resolution
 }
 
 function ChapterContent({ 
@@ -15,7 +17,9 @@ function ChapterContent({
   currentParagraphNumber, 
   onParagraphClick,
   paragraphRefs,
-  showRoleIndicator = true
+  showRoleIndicator = true,
+  novelId,
+  model
 }: ChapterContentProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -63,6 +67,8 @@ function ChapterContent({
               <RoleIndicator 
                 role={paragraph.role || undefined}
                 voiceId={paragraph.voiceId || undefined}
+                novelId={novelId}
+                model={model}
                 compact={true}
               />
             </div>

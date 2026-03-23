@@ -189,3 +189,11 @@ export interface WorkerGenerateResponse {
   message: string
 }
 
+export interface TTSModel {
+  name: string
+  displayName: string
+  model: string
+  baseURL: string
+  defaultVoice: string
+}
+

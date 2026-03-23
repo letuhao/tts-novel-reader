@@ -11,6 +11,7 @@ interface NovelState {
   fetchNovel: (id: string) => Promise<void>
   addNovel: (novel: Novel) => void
   removeNovel: (id: string) => void
+  deleteNovel: (id: string) => Promise<void>
   setCurrentNovel: (novel: Novel | null) => void
 }
 
@@ -56,7 +57,25 @@ export const useNovelStore = create<NovelState>((set) => ({
       novels: state.novels.filter((n) => n.id !== id),
       currentNovel: state.currentNovel?.id === id ? null : state.currentNovel,
     })),
-  
+
+  deleteNovel: async (id: string) => {
+    set({ loading: true, error: null })
+    try {
+      await novelService.remove(id)
+      set((state) => ({
+        novels: state.novels.filter((n) => n.id !== id),
+        currentNovel: state.currentNovel?.id === id ? null : state.currentNovel,
+        loading: false,
+      }))
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to delete novel',
+        loading: false,
+      })
+      throw error
+    }
+  },
+
   setCurrentNovel: (novel: Novel | null) => set({ currentNovel: novel }),
 }))
 
